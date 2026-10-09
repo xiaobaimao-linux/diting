@@ -14,9 +14,11 @@
 - **基线快照管理**：文件哈希/权限/属主采集入 SQLite，可信基准全生命周期管理（snapshot / list / delete / check / clean）
 - **实时文件监控双模式**：纯 YAML 规则监控；基线监控模式（开机自检 + 实时篡改校验，区分存量风险与运行时入侵）
 - **运行时遥测**：网络 connect/accept/bind 五元组、DNS 查询域名、权限事件（setuid/capset/ptrace/内核模块）、命名空间事件（mount/unshare/setns），全部携带进程归属与容器 ID，JSON 结构化输出
-- **告警降噪**：钉钉机器人推送，实时/基线告警独立冷却
+- **规则检测引擎**：规则 DSL v1 + 解析/匹配引擎，core 规则包覆盖执行类（TA0002）与凭据类（TA0006）攻击手法，配套 14 个攻击用例端到端验证与日常操作误报扫描
+- **资产清点**：五类主机资产落库 + AI 资产发现——GPU 统一接口（NVIDIA 已适配，昇腾/海光预留）、模型文件识别（扩展名+魔数双判）、AI 进程三特征识别（cmdline / maps / 环境变量）
+- **告警降噪与外发**：四级 severity + min_level 路由 + 静默窗口 + 外发侧窗口聚合（实测降幅 99.88%，落库逐条不受影响），钉钉/异步 webhook 渠道，失败重试不影响落库
 - **合规交付**：HTML 审计报表、告警历史查询、事件汇总导出
-- **低资源开销**：事件驱动无轮询，遥测开关默认关闭、对既有功能零影响
+- **低资源开销**：事件驱动无轮询，遥测开关默认关闭、对既有功能零影响；10k/s 事件零丢失，常态 CPU 均值 0.57%、RSS 峰值 139MB（全功能口径）
 
 ## 快速上手
 
@@ -50,11 +52,12 @@ sudo -u nobody id                          # → priv.setuid
 
 ```
 ├── src/            # 用户态：baseline(FIM+遥测消费) / alerts / storage / cli / ops / common
-│                   # 预留：asset(M1) / detect(M3) / ai(M4) / ebpf
+│                   # asset(资产清点+AI资产发现) / detect(规则DSL引擎)；预留：ai(M4) / ebpf
 ├── manager/        # [M9 预留] 管理中心（企业版）
 ├── bpf/            # lsm_file / net_watch / priv_watch 探针 + 完整版 vmlinux.h（CO-RE）
-├── docs/           # 帮助中心(help/) + 兼容矩阵 + 设计文档
-├── tests/          # unit / integration（遥测端到端验收）/ fixtures
+├── rules/          # core 规则包（执行/凭据类）+ examples + perf/storm 压测规则
+├── docs/           # 帮助中心(help/) + 兼容矩阵 + 设计文档 + 开发日志
+├── tests/          # unit / integration / attack-cases(14 个攻击用例) / perf / fixtures
 └── Makefile
 ```
 
@@ -79,7 +82,11 @@ C++17 · libbpf CO-RE（LSM BPF / kprobe / tracepoint）· yaml-cpp · SQLite（
 
 - ✅ **v0.3 已冻结**：FIM 全量功能（基线子命令、双模式监控、三类告警隔离、HTML 报表）
 - ✅ **运行时遥测已入库**：网络/DNS/权限/命名空间事件 + 容器归属（内核 6.x/7.0 实测验收）
-- 🔄 **迭代中**：事件总线 + 落库管道、威胁检测（M3）、资产清点（M1）、AI 工作负载防护（M4）、管理中心（M9）
+- ✅ **事件总线 + 落库管道**：10k/s × 5min 用户态零丢失，丢点计数全暴露
+- ✅ **资产清点（M1）**：主机五类资产 + GPU/模型文件/AI 进程识别，`asset collect/list` 子命令
+- ✅ **规则检测（M3 引擎）**：规则 DSL v1 端到端可用，core 规则包 8 条 + 误报扫描口径建立（W6 D1：日常操作仅 1 条已知双义误报）
+- ✅ **告警外发链路**：severity 分级 / 路由 / 静默 / 聚合四层降噪（外发降幅 99.88%，三方对账误差 0）
+- 🔄 **迭代中**：core 规则包扩充至 20+ 条、CIS 40 项接入 check 引擎、AI 告警升级（设计已定稿）、管理中心（M9）
 
 ## 商业服务与许可证
 
