@@ -12,7 +12,8 @@ namespace detect {
 // （不含文件名/行号，由加载方按 condition 节点行号补前缀）。
 // 字段路径在此即对照 schema 字段表校验：形似字段（event_type 或
 // process./container./file./network./dns./priv./ns. 前缀）但不在表内
-// 报"未知字段"；event_type 比较的右操作数强制按字面值处理。
+// 报"未知字段"；event_type 比较的右操作数强制按字面值处理，且 = / in
+// 的字面值对照已知事件类型表校验，表外报"未知事件类型"（G3 根因防御）。
 std::unique_ptr<CondNode> ParseCondition(const std::string &text, std::string &err);
 
 } // namespace detect

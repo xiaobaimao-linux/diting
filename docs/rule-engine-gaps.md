@@ -17,10 +17,10 @@
 
 ## G3 network/dns/priv/ns 事件未接入规则引擎
 
-- 现状：`route_event`（src/baseline/monitor.cpp:1412-1486）只对 CAT_FILE 与 CAT_PROCESS(exec) 调用 DSL 求值；`rule_engine.cpp` 虽有 net_*/dns_*/priv_* 字段解析与事件类型表，但无接线。**写 `event_type = network.connect` 的规则不会触发，也不报错**。
-- 影响：本次"shell 直接发起 TCP 外连（/dev/tcp 反弹特征）"的最强信号不可用。
-- 退化方案：反弹 shell 检测全部走 process.exec 路径。
-- v2 方向：route_event 补齐 network/dns/priv/ns 的 EventView 构造与求值调用。
+- **已修复（2026-10-09）**：`route_event` 补齐四类事件的 EventView 构造与求值调用（`eval_rules_on_net_event` / `eval_rules_on_priv_event`，复用渲染 JSON 字段，语义与 file/process 一致）；根因防御同步落地——condition 中 `event_type` 的 `=`/`in` 字面值加载期对照已知事件类型表校验，表外直接报错（`condition_parser.cpp`），未知字段此前已报错，"写了不触发不报错"路径全部封死。验证：priv.ptrace / ns.unshare / network.connect / network.dns 各一条规则手动触发命中并落库。
+- 原现状：`route_event`（src/baseline/monitor.cpp:1412-1486）只对 CAT_FILE 与 CAT_PROCESS(exec) 调用 DSL 求值；`rule_engine.cpp` 虽有 net_*/dns_*/priv_* 字段解析与事件类型表，但无接线。**写 `event_type = network.connect` 的规则不会触发，也不报错**。
+- 原影响：本次"shell 直接发起 TCP 外连（/dev/tcp 反弹特征）"的最强信号不可用。
+- 原退化方案：反弹 shell 检测全部走 process.exec 路径。
 
 ## G4 无 endswith/正则/glob
 
@@ -52,7 +52,12 @@
 - v2 方向：Evaluate 返回全部命中列表，告警侧按规则去重/节流。
 
 ## G9 file.write 只对真实 write(2) 字节产生（kernel 7.0 实测）
-
 - 现状：只 open(O_TRUNC) 不写数据（`cp /dev/null F`、空输入 `tee F`）、或纯 `truncate(2)` 系统调用（`truncate -s 0`，走 path_truncate 钩子未插桩）都不产生 file.write 事件；有实际写入才上报。
 - 影响：`cred-clear-history` 对"打开即截断但不写"的清空手法不可见；攻击用例不能用 truncate/cp-null 触发（case-14 改用 `dd conv=notrunc`）。
 - v2 方向：补 `lsm/path_truncate` 钩子，或在 open 路径也上报 O_TRUNC。
+
+## G10 ns.names[] 元素命名与 schema 文档不一致
+
+- 现状：schema（docs/event-schema-v1.md §2）与 DSL 文档示例写作 `["CLONE_NEWNS"]`，实际渲染（src/baseline/monitor_privilege.cpp `decode_ns_flags`）输出去 `CLONE_` 前缀的名字（`NEWNS` / `NEWUSER` / `NEWNET` …）。写 `ns.names[] = CLONE_NEWUSER` 永不触发（但 G3 修复后此类失配已能被触发验证发现，不再静默）。
+- 影响：ns 类规则用 `ns.names[]` 须写无前缀名（`ns.names[] = NEWUSER`），或改用数值字段 `ns.flags`（CLONE_NEWUSER=268435456）。
+- v2 方向：W7 统一处理——渲染输出补 `CLONE_` 前缀对齐 schema（涉及落库 JSON 历史数据迁移，不现场改）。

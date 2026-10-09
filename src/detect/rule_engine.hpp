@@ -22,8 +22,8 @@ struct AncestorView {
 // 字段族并把对应 has_* 置位，其余保持默认即视为缺失（缺失语义：
 // string 按空串、number 比较一律为 false）。
 // string_view 引用的内存须在 Evaluate 调用期间有效。
-// 扩展点：v1 接入方仅 file + process.exec 两类；network/dns/priv/ns
-// 字段族访问器已定义全，后续接入方按同样方式填充即可。
+// 接入方（src/baseline/monitor.cpp route_event）：file / process.exec /
+// network / dns / priv / ns 六类全部接线（network/dns/priv/ns 为 W7 G3 补接）。
 struct EventView {
     std::string_view event_type;
 

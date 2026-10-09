@@ -480,6 +480,76 @@ void test_et_prefilter_semantics() {
     printf("[PASS] RDSL-017: 事件类型预过滤语义（Or 并集/Not 放弃/死规则/表外类型）\n");
 }
 
+// ====== RDSL-018: priv 事件命中规则（W7 G3：priv 字段族求值）======
+void test_priv_eval() {
+    std::vector<Rule> rules;
+    std::string err;
+    assert(load_single("privhit", "privhit.yaml",
+                       rule_yaml("PTRACE1", "event_type = priv.ptrace and priv.request = PTRACE_ATTACH"),
+                       rules, err));
+    auto engine = build_engine(std::move(rules));
+    MatchResult m;
+
+    // 命中：PTRACE_ATTACH
+    EventView v = base_view("priv.ptrace");
+    v.has_priv = true;
+    v.priv_request = "PTRACE_ATTACH";
+    v.priv_request_value = 16;
+    v.priv_target_pid = 4321;
+    assert(engine.Evaluate(v, m));
+    assert(m.rule->name == "PTRACE1");
+
+    // request 不符 → 不命中
+    v.priv_request = "PTRACE_TRACEME";
+    assert(!engine.Evaluate(v, m));
+
+    // 事件类型不符（ns.unshare 进 ns 桶，priv 桶规则不得命中）→ 不命中
+    v = base_view("ns.unshare");
+    v.has_ns = true;
+    assert(!engine.Evaluate(v, m));
+
+    // number 字段断言：target_pid 参与比较
+    std::vector<Rule> rules2;
+    assert(load_single("privpid", "privpid.yaml",
+                       rule_yaml("PTRACE2", "event_type = priv.ptrace and priv.target_pid = 4321"),
+                       rules2, err));
+    auto engine2 = build_engine(std::move(rules2));
+    v = base_view("priv.ptrace");
+    v.has_priv = true;
+    v.priv_target_pid = 4321;
+    assert(engine2.Evaluate(v, m));
+    v.priv_target_pid = 1;
+    assert(!engine2.Evaluate(v, m));
+    printf("[PASS] RDSL-018: priv 事件命中规则（request 字符串/target_pid 数值/桶隔离）\n");
+}
+
+// ====== RDSL-019: event_type 正约束引用表外事件类型 → 加载期报错（W7 G3 根因防御）======
+void test_unknown_event_type() {
+    std::vector<Rule> rules;
+    std::string err;
+    // Eq 字面值表外
+    bool ok = load_single("badet", "badet.yaml",
+                          rule_yaml("R1", "event_type = network.foo"), rules, err);
+    assert(!ok);
+    assert(err.find("badet.yaml:3:") != std::string::npos);
+    assert(err.find("未知事件类型") != std::string::npos);
+    assert(err.find("network.foo") != std::string::npos);
+
+    // in 列表内含表外类型
+    ok = load_single("badetin", "badetin.yaml",
+                     rule_yaml("R1", "event_type in (file.read, priv.ptracee)"), rules, err);
+    assert(!ok);
+    assert(err.find("未知事件类型") != std::string::npos);
+    assert(err.find("priv.ptracee") != std::string::npos);
+
+    // 表内全部四类新接入类型可正常加载
+    ok = load_single("goodet", "goodet.yaml",
+                     rule_yaml("R1", "event_type in (network.connect, network.dns, priv.ptrace, ns.unshare)"),
+                     rules, err);
+    assert(ok && err.empty());
+    printf("[PASS] RDSL-019: 未知事件类型加载期报错（= / in 均覆盖）\n");
+}
+
 int main() {
     test_examples_parse();
     test_examples_ast();
@@ -499,6 +569,8 @@ int main() {
     test_string_ops();
     test_template_unknown_field();
     test_et_prefilter_semantics();
+    test_priv_eval();
+    test_unknown_event_type();
     printf("[PASS] ALL test_rule_dsl done\n");
     return 0;
 }

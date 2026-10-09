@@ -1398,10 +1398,123 @@ static void eval_rules_on_exec_event(const struct proc_event& pe, TelemetryRunti
                    anc.empty() ? std::string() : anc.dump(), rt->alert_mgr);
 }
 
+// network/dns 事件求值：render_network_event 之后调用（不依赖 store 开关）。
+// view 的 string_view 引用 j 与 rec 内部存储，二者在调用期间存活。
+static void eval_rules_on_net_event(const struct net_event& ne, const EventRecord& rec,
+                                    const json& j, TelemetryRuntime* rt) {
+    const auto engine = rule_engine_snapshot();
+    if (engine->rule_count() == 0 || rt->alert_mgr == nullptr)
+        return;
+
+    detect::EventView view;
+    view.event_type = j["event_type"].get_ref<const std::string&>();
+    view.pid  = ne.pid;
+    view.ppid = ne.ppid;
+    view.uid  = ne.uid;
+    view.gid  = ne.gid;
+    view.comm = std::string_view(ne.comm, strnlen(ne.comm, sizeof(ne.comm)));
+    view.exe  = std::string_view(rec.exe, strnlen(rec.exe, sizeof(rec.exe)));
+    view.container_id =
+        std::string_view(rec.container_id, strnlen(rec.container_id, sizeof(rec.container_id)));
+    if (ne.event_kind == NET_EVENT_DNS) {
+        const json& d = j["dns"];
+        view.has_dns    = true;
+        view.dns_domain = d["domain"].get_ref<const std::string&>();
+        view.dns_qtype  = d["qtype"].get<long long>();
+    } else {
+        const json& n = j["network"];
+        view.has_network  = true;
+        view.net_sip      = n["sip"].get_ref<const std::string&>();
+        view.net_dip      = n["dip"].get_ref<const std::string&>();
+        view.net_family   = n["family"].get<long long>();
+        view.net_protocol = n["protocol"].get<long long>();
+        view.net_sport    = n["sport"].get<long long>();
+        view.net_dport    = n["dport"].get<long long>();
+    }
+    const json anc = rt->enricher->ancestors_of(ne.pid, ne.ppid);
+    fill_ancestors_view(anc, view.ancestors);
+
+    detect::MatchResult m;
+    if (!engine->Evaluate(view, m))
+        return;
+    send_dsl_alert(*m.rule, m.output, view, std::string(view.exe), cached_user_name(ne.uid),
+                   anc.empty() ? std::string() : anc.dump(), rt->alert_mgr);
+}
+
+// priv/ns 事件求值：render_privilege_event 之后调用（不依赖 store 开关）。
+// priv_kind >= PRIV_KIND_MOUNT 为命名空间事件（ns.* 字段族），其余为权限事件。
+static void eval_rules_on_priv_event(const struct priv_event& pe, const EventRecord& rec,
+                                     const json& j, TelemetryRuntime* rt) {
+    const auto engine = rule_engine_snapshot();
+    if (engine->rule_count() == 0 || rt->alert_mgr == nullptr)
+        return;
+
+    detect::EventView view;
+    view.event_type = j["event_type"].get_ref<const std::string&>();
+    view.pid  = pe.pid;
+    view.ppid = pe.ppid;
+    view.uid  = pe.uid;
+    view.gid  = pe.gid;
+    view.comm = std::string_view(pe.comm, strnlen(pe.comm, sizeof(pe.comm)));
+    view.exe  = std::string_view(rec.exe, strnlen(rec.exe, sizeof(rec.exe)));
+    view.container_id =
+        std::string_view(rec.container_id, strnlen(rec.container_id, sizeof(rec.container_id)));
+    if (pe.priv_kind >= PRIV_KIND_MOUNT) {
+        const json& n = j["ns"];
+        view.has_ns = true;
+        if (n.contains("source"))
+            view.ns_source = n["source"].get_ref<const std::string&>();
+        if (n.contains("target"))
+            view.ns_target = n["target"].get_ref<const std::string&>();
+        if (n.contains("fstype"))
+            view.ns_fstype = n["fstype"].get_ref<const std::string&>();
+        if (n.contains("flags"))
+            view.ns_flags = n["flags"].get<long long>();
+        if (n.contains("fd"))
+            view.ns_fd = n["fd"].get<long long>();
+        if (n.contains("nstype"))
+            view.ns_nstype = n["nstype"].get<long long>();
+        if (n.contains("nstype_name"))
+            view.ns_nstype_name = n["nstype_name"].get_ref<const std::string&>();
+        if (n.contains("target_ns"))
+            view.ns_target_ns = n["target_ns"].get_ref<const std::string&>();
+        if (n.contains("names")) {
+            // names 元素为字符串（未知名位以数值入数组，非字符串元素跳过）
+            for (const auto& e : n["names"]) {
+                if (e.is_string())
+                    view.ns_names.push_back(e.get_ref<const std::string&>());
+            }
+        }
+    } else {
+        const json& p = j["priv"];
+        view.has_priv = true;
+        if (p.contains("target_id"))
+            view.priv_target_id = p["target_id"].get<long long>();
+        if (p.contains("effective_lo"))
+            view.priv_effective_lo = p["effective_lo"].get<long long>();
+        if (p.contains("request"))
+            view.priv_request = p["request"].get_ref<const std::string&>();
+        if (p.contains("request_value"))
+            view.priv_request_value = p["request_value"].get<long long>();
+        if (p.contains("target_pid"))
+            view.priv_target_pid = p["target_pid"].get<long long>();
+        if (p.contains("name"))
+            view.priv_name = p["name"].get_ref<const std::string&>();
+    }
+    const json anc = rt->enricher->ancestors_of(pe.pid, pe.ppid);
+    fill_ancestors_view(anc, view.ancestors);
+
+    detect::MatchResult m;
+    if (!engine->Evaluate(view, m))
+        return;
+    send_dsl_alert(*m.rule, m.output, view, std::string(view.exe), cached_user_name(pe.uid),
+                   anc.empty() ? std::string() : anc.dump(), rt->alert_mgr);
+}
+
 // 路由单条事件：file→查进程树拼进程上下文后回原处理函数（告警富化 exe/
 // container_id/ancestors，树关闭时行为与现状一致；store 开启时渲染 JSON、
 // 富化祖先链并落库）、process→先更新进程树（exec 另落库）、
-// network/dns/priv/ns→渲染 JSON 走原日志输出（行为零变化），
+// network/dns/priv/ns→渲染 JSON 走原日志输出并过规则引擎求值（W7 G3 接入），
 // store 开启时富化祖先链并落库。
 static void route_event(EventRecord& rec, TelemetryRuntime* rt) {
     // 排队延迟：dequeue 时间 - 入队时间
@@ -1459,6 +1572,7 @@ static void route_event(EventRecord& rec, TelemetryRuntime* rt) {
         json j;
         render_network_event(ne, rec, j);
         spdlog::info("{}", j.dump());   // 与迁移前逐字节一致
+        eval_rules_on_net_event(ne, rec, j, rt);   // 规则引擎求值不依赖 store 开关
         if (rt->store_on) {
             rt->enricher->enrich(rec, j);
             const std::string payload = j.dump();
@@ -1473,6 +1587,7 @@ static void route_event(EventRecord& rec, TelemetryRuntime* rt) {
         json j;
         render_privilege_event(pe, rec, j);
         spdlog::info("{}", j.dump());   // 与迁移前逐字节一致
+        eval_rules_on_priv_event(pe, rec, j, rt);   // 规则引擎求值不依赖 store 开关
         if (rt->store_on) {
             rt->enricher->enrich(rec, j);
             const std::string payload = j.dump();

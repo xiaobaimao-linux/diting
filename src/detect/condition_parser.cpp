@@ -2,6 +2,8 @@
 
 #include <cctype>
 
+#include "rule_engine.hpp" // EventTypeIdOf（event_type 字面值加载期校验）
+
 namespace detect {
 
 bool FieldIsNumber(FieldId id) {
@@ -464,6 +466,24 @@ class Parser {
             node->lhs.kind == Operand::Kind::Field && FieldIsNumber(node->lhs.field)) {
             Fail("contains/startswith 仅支持字符串字段");
             return nullptr;
+        }
+        // event_type 正约束（= / in）的字面值对照已知事件类型表：表外类型
+        // 永不触发，加载期直接报错（G3 根因防御：写了不触发不报错是最坏的
+        // 静默失效）。Ne/contains/startswith 不产生正约束，不校验。
+        if (node->lhs.kind == Operand::Kind::Field && node->lhs.field == FieldId::event_type) {
+            if (op == CmpOp::Eq && node->rhs.kind == Operand::Kind::Str) {
+                if (EventTypeIdOf(node->rhs.str) < 0) {
+                    Fail("未知事件类型: " + node->rhs.str);
+                    return nullptr;
+                }
+            } else if (op == CmpOp::In && node->rhs.kind == Operand::Kind::List) {
+                for (const auto &elem : node->rhs.list) {
+                    if (elem.kind == Operand::Kind::Str && EventTypeIdOf(elem.str) < 0) {
+                        Fail("未知事件类型: " + elem.str);
+                        return nullptr;
+                    }
+                }
+            }
         }
         return node;
     }
