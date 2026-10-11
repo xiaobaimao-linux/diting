@@ -12,6 +12,7 @@ INCLUDE_DIRS = -I. \
                -I./src/asset \
                -I./src/baseline \
                -I./src/cli \
+               -I./src/cis \
                -I./src/common \
                -I./src/detect \
                -I./src/ai \
@@ -78,6 +79,11 @@ MAIN_SRCS = src/main.cpp \
             src/baseline/check.cpp \
             src/baseline/monitor_baseline.cpp \
             src/baseline/report_generator.cpp \
+            src/cis/cis_check.cpp \
+            src/cis/cis_exec.cpp \
+            src/cis/cis_judge.cpp \
+            src/cis/cis_main.cpp \
+            src/cis/cis_store.cpp \
             src/cli/config.cpp \
             src/common/commonfun.cpp \
             src/common/utils.cpp \

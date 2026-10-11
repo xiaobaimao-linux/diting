@@ -1,0 +1,326 @@
+# CIS 裁剪版基线检查定义 v1（机器源）
+# 可读源：docs/cis-baseline-v1.md（唯一事实来源），本文件为其逐条转录，禁止新造检查项。
+# 六字段：id / description / command / expected / severity / compliance（category 由 id 前缀派生，冗余列出便于过滤）。
+version: 1
+source: docs/cis-baseline-v1.md
+checks:
+  - id: AUTH-01
+    category: AUTH
+    description: "口令最长使用期限 ≤90 天"
+    command: |-
+      v=$(awk '$1=="PASS_MAX_DAYS"{print $2; exit}' /etc/login.defs); [ -n "$v" ] && [ "$v" -le 90 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（PASS_MAX_DAYS ≤90；未设置或默认值 99999 判 FAIL）"
+    severity: high
+    compliance: "8.1.4.1"
+  - id: AUTH-02
+    category: AUTH
+    description: "口令最短使用期限 ≥1 天"
+    command: |-
+      v=$(awk '$1=="PASS_MIN_DAYS"{print $2; exit}' /etc/login.defs); [ -n "$v" ] && [ "$v" -ge 1 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（PASS_MIN_DAYS ≥1；未设置或 0 判 FAIL）"
+    severity: low
+    compliance: "8.1.4.1"
+  - id: AUTH-03
+    category: AUTH
+    description: "口令过期提醒提前 ≥7 天"
+    command: |-
+      v=$(awk '$1=="PASS_WARN_AGE"{print $2; exit}' /etc/login.defs); [ -n "$v" ] && [ "$v" -ge 7 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（PASS_WARN_AGE ≥7；未设置判 FAIL）"
+    severity: low
+    compliance: "8.1.4.1"
+  - id: AUTH-04
+    category: AUTH
+    description: "口令最小长度 ≥14（pwquality）"
+    command: |-
+      v=$(awk -F= '/^\s*minlen\s*=/{gsub(/[[:space:]]/,"",$2);print $2;exit}' /etc/security/pwquality.conf); [ -z "$v" ] && v=$(grep -h 'pam_pwquality\.so' /etc/pam.d/common-password | sed -n 's/.*minlen=\([0-9]*\).*/\1/p'); [ -n "$v" ] && [ "$v" -ge 14 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（minlen ≥14，pwquality.conf 优先，其次 common-password 中 pam_pwquality.so 行参数；两处均未设置判 FAIL）"
+    severity: high
+    compliance: "8.1.4.1"
+  - id: AUTH-05
+    category: AUTH
+    description: "登录失败锁定（pam_faillock）已启用"
+    command: |-
+      [ "$(grep -c 'pam_faillock\.so' /etc/pam.d/common-auth)" -ge 2 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（common-auth 中 pam_faillock.so 出现 ≥2 次，即 preauth+authfail 均配置；0 次表示未启用锁定，判 FAIL。建议在 /etc/security/faillock.conf 中显式设 deny≤10）"
+    severity: high
+    compliance: "8.1.4.1"
+  - id: AUTH-06
+    category: AUTH
+    description: "空口令禁用"
+    command: |-
+      awk -F: '$2==""{bad=1} END{exit bad}' /etc/passwd && ! grep -qE '^\s*[^#]*\bnullok\b' /etc/pam.d/common-auth /etc/pam.d/common-password && echo PASS || echo FAIL
+    expected: "输出 PASS（/etc/passwd 第 2 列无空字段，且 common-auth/common-password 未启用 nullok；任一项不满足判 FAIL）"
+    severity: high
+    compliance: "8.1.4.1"
+  - id: AUTH-07
+    category: AUTH
+    description: "UID 0 账户唯一且为 root"
+    command: |-
+      u=$(awk -F: '$3==0{print $1}' /etc/passwd); [ "$u" = "root" ] && echo PASS || echo FAIL
+    expected: "输出 PASS（UID=0 仅 root 一个账户；存在其他 UID 0 账户判 FAIL）"
+    severity: medium
+    compliance: "8.1.4.2"
+  - id: AUTH-08
+    category: AUTH
+    description: "默认 UMASK ≥027"
+    command: |-
+      v=$(awk '$1=="UMASK"{print $2; exit}' /etc/login.defs); [ -n "$v" ] && [ $((8#$v)) -ge $((8#027)) ] && echo PASS || echo FAIL
+    expected: "输出 PASS（/etc/login.defs 中 UMASK 为 027/077 等不宽松于 027 的值；022 或未设置判 FAIL）"
+    severity: low
+    compliance: "8.1.4.8"
+  - id: SSH-01
+    category: SSH
+    description: "禁止 root 直接 SSH 登录（PermitRootLogin no）"
+    command: |-
+      v=$(grep -hiE '^\s*PermitRootLogin\s+\S' /etc/ssh/sshd_config.d/*.conf /etc/ssh/sshd_config 2>/dev/null | awk '{print tolower($2)}' | tail -1); [ "$v" = no ] && echo PASS || echo FAIL
+    expected: "输出 PASS（生效值为 no；缺省 prohibit-password 亦判 FAIL，因不满足“显式禁止”）"
+    severity: high
+    compliance: "8.1.4.1"
+  - id: SSH-02
+    category: SSH
+    description: "禁用口令认证（PasswordAuthentication no）"
+    command: |-
+      v=$(grep -hiE '^\s*PasswordAuthentication\s+\S' /etc/ssh/sshd_config.d/*.conf /etc/ssh/sshd_config 2>/dev/null | awk '{print tolower($2)}' | tail -1); [ "$v" = no ] && echo PASS || echo FAIL
+    expected: "输出 PASS（生效值为 no；未设置时缺省为 yes，判 FAIL。仅密钥环境适用）"
+    severity: medium
+    compliance: "8.1.4.1"
+  - id: SSH-03
+    category: SSH
+    description: "最大认证尝试次数 ≤4（MaxAuthTries）"
+    command: |-
+      v=$(grep -hiE '^\s*MaxAuthTries\s+\S' /etc/ssh/sshd_config.d/*.conf /etc/ssh/sshd_config 2>/dev/null | awk '{print tolower($2)}' | tail -1); [ -n "$v" ] && [ "$v" -le 4 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（1≤MaxAuthTries≤4；未设置时缺省 6，判 FAIL）"
+    severity: medium
+    compliance: "8.1.4.1"
+  - id: SSH-04
+    category: SSH
+    description: "禁止空口令登录（PermitEmptyPasswords no）"
+    command: |-
+      v=$(grep -hiE '^\s*PermitEmptyPasswords\s+\S' /etc/ssh/sshd_config.d/*.conf /etc/ssh/sshd_config 2>/dev/null | awk '{print tolower($2)}' | tail -1); { [ -z "$v" ] || [ "$v" = no ]; } && echo PASS || echo FAIL
+    expected: "输出 PASS（生效值为 no；未设置时缺省即为 no，判 PASS；显式 yes 判 FAIL）"
+    severity: high
+    compliance: "8.1.4.1"
+  - id: SSH-05
+    category: SSH
+    description: "关闭 X11 转发（X11Forwarding no）"
+    command: |-
+      v=$(grep -hiE '^\s*X11Forwarding\s+\S' /etc/ssh/sshd_config.d/*.conf /etc/ssh/sshd_config 2>/dev/null | awk '{print tolower($2)}' | tail -1); { [ -z "$v" ] || [ "$v" = no ]; } && echo PASS || echo FAIL
+    expected: "输出 PASS（生效值为 no；未设置缺省为 no 判 PASS；显式 yes 判 FAIL）"
+    severity: low
+    compliance: "8.1.4.4"
+  - id: SSH-06
+    category: SSH
+    description: "SSH 空闲会话超时（1≤ClientAliveInterval≤300）"
+    command: |-
+      v=$(grep -hiE '^\s*ClientAliveInterval\s+\S' /etc/ssh/sshd_config.d/*.conf /etc/ssh/sshd_config 2>/dev/null | awk '{print tolower($2)}' | tail -1); [ -n "$v" ] && [ "$v" -ge 1 ] && [ "$v" -le 300 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（ClientAliveInterval 在 1~300 秒；未设置时缺省 0（永不超时），判 FAIL）"
+    severity: low
+    compliance: "8.1.4.1"
+  - id: SSH-07
+    category: SSH
+    description: "单连接最大会话数 ≤10（MaxSessions）"
+    command: |-
+      v=$(grep -hiE '^\s*MaxSessions\s+\S' /etc/ssh/sshd_config.d/*.conf /etc/ssh/sshd_config 2>/dev/null | awk '{print tolower($2)}' | tail -1); { [ -z "$v" ] || { [ "$v" -ge 1 ] && [ "$v" -le 10 ]; }; } && echo PASS || echo FAIL
+    expected: "输出 PASS（未设置时缺省 10，判 PASS；显式设置须 ≤10）"
+    severity: low
+    compliance: "8.1.4.4"
+  - id: SSH-08
+    category: SSH
+    description: "SSH 审计日志详细级别 ≥VERBOSE"
+    command: |-
+      v=$(grep -hiE '^\s*LogLevel\s+\S' /etc/ssh/sshd_config.d/*.conf /etc/ssh/sshd_config 2>/dev/null | awk '{print tolower($2)}' | tail -1); [ -n "$v" ] && { [ "$v" = verbose ] || [ "$v" = debug ] || [ "$v" = debug1 ] || [ "$v" = debug2 ] || [ "$v" = debug3 ]; } && echo PASS || echo FAIL
+    expected: "输出 PASS（LogLevel 为 VERBOSE/DEBUGx；未设置时缺省 INFO，判 FAIL）"
+    severity: low
+    compliance: "8.1.4.3"
+  - id: LOG-01
+    category: LOG
+    description: "rsyslog 服务已启用自启动"
+    command: |-
+      systemctl is-enabled rsyslog 2>/dev/null | grep -qx enabled && echo PASS || echo FAIL
+    expected: "输出 PASS（rsyslog 开机自启；unit 不存在或 disabled/masked 判 FAIL）"
+    severity: high
+    compliance: "8.1.4.3"
+  - id: LOG-02
+    category: LOG
+    description: "journald 日志持久化存储"
+    command: |-
+      v=$(awk -F= '/^\s*Storage\s*=/{x=tolower($2); gsub(/[[:space:]]/,"",x)} END{print x}' /etc/systemd/journald.conf); [ -z "$v" ] && v=auto; { [ "$v" = persistent ] || { [ "$v" = auto ] && [ -d /var/log/journal ]; }; } && echo PASS || echo FAIL
+    expected: "输出 PASS（Storage=persistent，或未设置/为 auto 且 /var/log/journal 目录存在——未设置时 journald 缺省即 auto；Storage=volatile，或 auto 但无持久目录判 FAIL）"
+    severity: medium
+    compliance: "8.1.4.3"
+  - id: LOG-03
+    category: LOG
+    description: "auditd 已安装并启用自启动"
+    command: |-
+      systemctl is-enabled auditd 2>/dev/null | grep -qx enabled && echo PASS || echo FAIL
+    expected: "输出 PASS（auditd 开机自启；未安装（unit not-found）或 disabled 判 FAIL——按等保审计要求视为未落实）"
+    severity: high
+    compliance: "8.1.4.3"
+  - id: LOG-04
+    category: LOG
+    description: "audit 规则非空"
+    command: |-
+      n=$(grep -hcE '^\s*[^#[:space:]]' /etc/audit/rules.d/*.rules 2>/dev/null | awk '{s+=$1} END{print s+0}'); [ "$n" -gt 0 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（/etc/audit/rules.d/*.rules 中有效（非注释非空）规则行数 >0；目录或文件不存在（行数 0）判 FAIL）"
+    severity: medium
+    compliance: "8.1.4.3"
+  - id: LOG-05
+    category: LOG
+    description: "认证日志文件权限与属主正确（/var/log/auth.log）"
+    command: |-
+      f=/var/log/auth.log; [ -f "$f" ] && { o=$(stat -c %U "$f"); g=$(stat -c %G "$f"); m=$(stat -c %a "$f"); { [ "$o" = root ] || [ "$o" = syslog ]; } && [ "$g" = adm ] && [ "$m" -le 640 ] && echo PASS || echo FAIL; } || echo FAIL
+    expected: "输出 PASS（文件存在，属主 root 或 syslog，组 adm，权限 ≤640；文件不存在判 FAIL）"
+    severity: low
+    compliance: "8.1.4.3"
+  - id: LOG-06
+    category: LOG
+    description: "系统日志 logrotate 轮转已配置"
+    command: |-
+      [ -f /etc/logrotate.conf ] && [ -f /etc/logrotate.d/rsyslog ] && echo PASS || echo FAIL
+    expected: "输出 PASS（logrotate 主配置与 rsyslog 轮转配置均存在；任一缺失判 FAIL）"
+    severity: low
+    compliance: "8.1.4.3"
+  - id: NET-01
+    category: NET
+    description: "禁用 IPv4 转发（ip_forward=0）"
+    command: |-
+      [ "$(sysctl -n net.ipv4.ip_forward 2>/dev/null)" = 0 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（运行时值为 0；为 1 判 FAIL。容器/虚拟化宿主机按需加白名单）"
+    severity: medium
+    compliance: "8.1.4.4"
+  - id: NET-02
+    category: NET
+    description: "禁用源路由（accept_source_route=0）"
+    command: |-
+      [ "$(sysctl -n net.ipv4.conf.all.accept_source_route 2>/dev/null)" = 0 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（net.ipv4.conf.all.accept_source_route=0）"
+    severity: medium
+    compliance: "8.1.4.4"
+  - id: NET-03
+    category: NET
+    description: "禁用 ICMP 重定向接收（accept_redirects=0）"
+    command: |-
+      [ "$(sysctl -n net.ipv4.conf.all.accept_redirects 2>/dev/null)" = 0 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（net.ipv4.conf.all.accept_redirects=0）"
+    severity: medium
+    compliance: "8.1.4.4"
+  - id: NET-04
+    category: NET
+    description: "反向路径过滤已启用（rp_filter≥1）"
+    command: |-
+      v=$(sysctl -n net.ipv4.conf.all.rp_filter 2>/dev/null); [ -n "$v" ] && [ "$v" -ge 1 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（net.ipv4.conf.all.rp_filter 为 1（严格）或 2（松散）；0 判 FAIL）"
+    severity: low
+    compliance: "8.1.4.4"
+  - id: NET-05
+    category: NET
+    description: "忽略 ICMP 广播请求"
+    command: |-
+      [ "$(sysctl -n net.ipv4.icmp_echo_ignore_broadcasts 2>/dev/null)" = 1 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（net.ipv4.icmp_echo_ignore_broadcasts=1）"
+    severity: low
+    compliance: "8.1.4.4"
+  - id: NET-06
+    category: NET
+    description: "SYN Cookie 防护已启用"
+    command: |-
+      [ "$(sysctl -n net.ipv4.tcp_syncookies 2>/dev/null)" = 1 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（net.ipv4.tcp_syncookies=1）"
+    severity: medium
+    compliance: "8.1.4.4"
+  - id: FILE-01
+    category: FILE
+    description: "/etc/shadow 权限与属主"
+    command: |-
+      { [ "$(stat -c %a /etc/shadow)" -le 640 ] && [ "$(stat -c %U:%G /etc/shadow)" = root:shadow ]; } && echo PASS || echo FAIL
+    expected: "输出 PASS（权限 ≤640 且属主 root:shadow；全局可读判 FAIL）"
+    severity: high
+    compliance: "8.1.4.2"
+  - id: FILE-02
+    category: FILE
+    description: "/etc/gshadow 权限与属主"
+    command: |-
+      { [ "$(stat -c %a /etc/gshadow)" -le 640 ] && [ "$(stat -c %U:%G /etc/gshadow)" = root:shadow ]; } && echo PASS || echo FAIL
+    expected: "输出 PASS（权限 ≤640 且属主 root:shadow）"
+    severity: high
+    compliance: "8.1.4.2"
+  - id: FILE-03
+    category: FILE
+    description: "/etc/passwd 权限与属主"
+    command: |-
+      [ "$(stat -c %a /etc/passwd)" -le 644 ] && [ "$(stat -c %U:%G /etc/passwd)" = root:root ] && echo PASS || echo FAIL
+    expected: "输出 PASS（权限 ≤644 且属主 root:root）"
+    severity: medium
+    compliance: "8.1.4.2"
+  - id: FILE-04
+    category: FILE
+    description: "GRUB 配置文件权限（grub.cfg）"
+    command: |-
+      [ "$(stat -c %a /boot/grub/grub.cfg 2>/dev/null)" -le 600 ] && [ "$(stat -c %U /boot/grub/grub.cfg 2>/dev/null)" = root ] && echo PASS || echo FAIL
+    expected: "输出 PASS（/boot/grub/grub.cfg 权限 ≤600 且属主 root；文件不存在判 FAIL——纯 UEFI 安装需改查 /boot/efi/EFI/*/grub.cfg）"
+    severity: medium
+    compliance: "8.1.4.2"
+  - id: FILE-05
+    category: FILE
+    description: "/etc/crontab 权限与属主"
+    command: |-
+      [ "$(stat -c %a /etc/crontab)" -le 600 ] && [ "$(stat -c %U:%G /etc/crontab)" = root:root ] && echo PASS || echo FAIL
+    expected: "输出 PASS（权限 ≤600 且属主 root:root；缺省 644 判 FAIL）"
+    severity: medium
+    compliance: "8.1.4.2"
+  - id: FILE-06
+    category: FILE
+    description: "cron 目录权限与属主"
+    command: |-
+      ok=1; for d in /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly; do [ "$(stat -c %a "$d" 2>/dev/null)" -le 700 ] && [ "$(stat -c %U "$d" 2>/dev/null)" = root ] || ok=0; done; [ "$ok" = 1 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（五个 cron 目录权限均 ≤700 且属主 root；任一不满足判 FAIL）"
+    severity: medium
+    compliance: "8.1.4.2"
+  - id: FILE-07
+    category: FILE
+    description: "TCP Wrappers 配置文件权限（hosts.allow/deny）"
+    command: |-
+      ok=1; for f in /etc/hosts.allow /etc/hosts.deny; do [ "$(stat -c %a "$f" 2>/dev/null)" -le 644 ] && [ "$(stat -c %U "$f" 2>/dev/null)" = root ] || ok=0; done; [ "$ok" = 1 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（两文件权限均 ≤644 且属主 root）"
+    severity: low
+    compliance: "8.1.4.2"
+  - id: FILE-08
+    category: FILE
+    description: "sshd_config 权限与属主"
+    command: |-
+      [ "$(stat -c %a /etc/ssh/sshd_config)" -le 600 ] && [ "$(stat -c %U:%G /etc/ssh/sshd_config)" = root:root ] && echo PASS || echo FAIL
+    expected: "输出 PASS（权限 ≤600 且属主 root:root；缺省 644 判 FAIL）"
+    severity: medium
+    compliance: "8.1.4.2"
+  - id: MISC-01
+    category: MISC
+    description: "swap 倾向值 ≤10（vm.swappiness）"
+    command: |-
+      v=$(sysctl -n vm.swappiness 2>/dev/null); [ -n "$v" ] && [ "$v" -le 10 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（vm.swappiness ≤10；缺省 60 判 FAIL。属性能调优项，按系统角色取舍）"
+    severity: low
+    compliance: "无直接对应"
+  - id: MISC-02
+    category: MISC
+    description: "地址空间随机化全开（ASLR=2）"
+    command: |-
+      [ "$(sysctl -n kernel.randomize_va_space 2>/dev/null)" = 2 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（kernel.randomize_va_space=2；0/1 判 FAIL）"
+    severity: medium
+    compliance: "8.1.4.4"
+  - id: MISC-03
+    category: MISC
+    description: "禁用 setuid 程序 core dump（suid_dumpable=0）"
+    command: |-
+      [ "$(sysctl -n fs.suid_dumpable 2>/dev/null)" = 0 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（fs.suid_dumpable=0；缺省 2（受保护调试，但仍产生转储）判 FAIL）"
+    severity: medium
+    compliance: "8.1.4.8"
+  - id: MISC-04
+    category: MISC
+    description: "sudoers 及 sudoers.d 文件权限"
+    command: |-
+      ok=1; for f in /etc/sudoers $(find /etc/sudoers.d -type f 2>/dev/null); do [ "$(stat -c %a "$f" 2>/dev/null)" -le 440 ] && [ "$(stat -c %U "$f" 2>/dev/null)" = root ] || ok=0; done; [ "$ok" = 1 ] && echo PASS || echo FAIL
+    expected: "输出 PASS（/etc/sudoers 及 /etc/sudoers.d 下全部文件权限 ≤440 且属主 root；任一 644/640 判 FAIL）"
+    severity: medium
+    compliance: "8.1.4.2"

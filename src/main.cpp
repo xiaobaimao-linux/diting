@@ -9,6 +9,7 @@
 #include "baseline_snapshot.hpp"
 #include "baseline_db.hpp"
 #include "check.hpp"
+#include "cis_main.hpp"
 #include "commonfun.hpp"
 #include "config.hpp"
 #include "logger.h"
@@ -251,6 +252,15 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // cis check / report 子命令：CIS 基线检查模块（独立解析，仅共享 SQLite 文件）
+    if (argc >= 2 && std::string(argv[1]) == "cis") {
+        if (argc < 3) {
+            fprintf(stderr, "Error: cis subcommand required (check, report)\n");
+            return 2;
+        }
+        return RunCis(argc - 2, argv + 2);
+    }
+
     // 设置全局日志级别（默认是 info，低于它的 debug/trace 不会输出）
     spdlog::set_level(spdlog::level::debug);
 
@@ -295,6 +305,8 @@ int main(int argc, char *argv[]) {
             printf("  report                export monitor events to HTML\n");
             printf("  asset collect         collect host assets into SQLite\n");
             printf("  asset list            list host assets (--type/--json)\n");
+            printf("  cis check             run CIS baseline checks (--category/--db/--json)\n");
+            printf("  cis report            show latest CIS check results (--level/--result)\n");
             printf("  stats --drop          show eBPF ring buffer drop statistics\n");
             return 0;
         } else if (arg == "-C" || arg == "--check") {
