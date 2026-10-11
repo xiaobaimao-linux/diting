@@ -36,6 +36,19 @@ tests/test_event_bus
 /tests/test_utils
 /tests/test_watermark
 /tests/test_event_bus
+/tests/test_ai_boost
+/tests/test_ai_workload
+/tests/test_cis_judge
+/tests/test_gpu_collector
+/tests/test_model_files
+/tests/test_notify_router
+/tests/test_process_tree
+/tests/test_rule_dsl
+/tests/test_whitelist
+/tests/integration/helpers/wl_parent
+/tests/integration/helpers/wl_writer
+/tests/perf/bench_lat
+/tests/perf/gen_load
 
 # 压测生成物（tests/perf/gen_rules_100.sh 按需生成）
 /rules/perf-100/
