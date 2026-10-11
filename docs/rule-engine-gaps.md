@@ -61,3 +61,42 @@
 - 现状：schema（docs/event-schema-v1.md §2）与 DSL 文档示例写作 `["CLONE_NEWNS"]`，实际渲染（src/baseline/monitor_privilege.cpp `decode_ns_flags`）输出去 `CLONE_` 前缀的名字（`NEWNS` / `NEWUSER` / `NEWNET` …）。写 `ns.names[] = CLONE_NEWUSER` 永不触发（但 G3 修复后此类失配已能被触发验证发现，不再静默）。
 - 影响：ns 类规则用 `ns.names[]` 须写无前缀名（`ns.names[] = NEWUSER`），或改用数值字段 `ns.flags`（CLONE_NEWUSER=268435456）。
 - v2 方向：W7 统一处理——渲染输出补 `CLONE_` 前缀对齐 schema（涉及落库 JSON 历史数据迁移，不现场改）。
+
+## G11 file.new_mode 渲染掩掉 setuid/setgid/sticky 高位
+
+- 现状：EventView 构造与落库 JSON 均做 `mode_to_string(new_mode & 0777)`（src/baseline/monitor.cpp:1324、1184），04755 渲染为 "0755"、04644 渲染为 "0644"。
+- 影响：`priv-suid-file-create` 无法直接判定 SUID 位——`chmod 4755` 与 `chmod 755` 不可区分（混报），`chmod u+s` 作用于 0644 文件时渲染为 "0644" 完全不可见（漏报）。
+- 退化方案：规则以 `file.new_mode = 0755` + exe 白名单近似，fpr_note 告知告警后须 stat 复核真实 mode。
+- v2 方向：渲染保留完整 mode（`& 07777`，4 位八进制字符串），历史数据格式兼容在 W7 一并评估。
+
+## G12 无位运算操作符（ns.flags 组合位不可表达）
+
+- 现状：比较操作符仅 `= != in contains startswith`，无 `&`/位测试。
+- 影响：`priv-unshare-userns` 要表达"flags 含 CLONE_NEWUSER 位"只能枚举具体数值（当前枚举纯 NEWUSER=268435456 与 NEWUSER|NEWNS=268566528），`unshare -U -m -p` 等其它组合漏报。
+- 退化方案：in 列表枚举最常见组合。
+- v2 方向：加 `bitand`/`has_flag` 类操作符（Falco 语义：`ns.flags & 268435456 != 0`）。
+
+## G13 exec 事件无环境变量采集
+
+- 现状：`process.exec` 负载只有 process.* 公共字段（docs/event-schema-v1.md §2.2/§4），无 env。
+- 影响：`persist-ld-preload` 的"LD_PRELOAD/LD_AUDIT 环境变量启动进程"一半不可表达，只覆盖写 /etc/ld.so.preload 文件面。
+- 退化方案：规则仅文件面，env 注入依赖其它行为信号（可疑 .so 落盘 + exec 时序人工研判）。
+- v2 方向：exec 事件选择性采集敏感 env（LD_PRELOAD/LD_AUDIT/LD_LIBRARY_PATH，非全量，防噪声与隐私问题）。
+
+## G14 priv.module_load 事件无模块路径/来源字段
+
+- 现状：`priv.module_load` 只有 `priv.name`（模块名，tracepoint module:module_load），无 .ko 文件路径。
+- 影响：`priv-kernel-module-load` 无法区分"同名合法模块（/lib/modules 下）"与"伪装同名 rootkit（/tmp/x.ko）"，只能靠模块名白名单降噪。
+- v2 方向：内核侧补 finit_module 的 fd→路径解析或 kernel_read_file(READING_MODULE) 路径字段。
+
+## G15 file.new_mode 渲染为 rwx 符号串，与 schema 文档的八进制口径不符
+
+- 现状：schema（docs/event-schema-v1.md §2.1）与 DSL 文档（docs/rule-dsl-v1.md §3）写 `file.new_mode 如 "0644"`，实际渲染（src/common/utils.cpp `mode_to_string`）输出 9 字符 rwx 符号串（如 "rwxr-xr-x"）。写 `file.new_mode = 0755` 永不触发（W6 D2 case-15 首轮实测踩出）。
+- 影响：mode 类条件必须用 rwx 字面量（`file.new_mode = rwxr-xr-x`）；与 G11 掩码叠加后，SUID 判定可用字面量只剩"4755/0755→rwxr-xr-x"一种近似。
+- v2 方向：W7 统一为 4 位八进制字符串对齐文档（同 G10 一类渲染口径漂移，涉及历史数据迁移，不现场改）。
+
+## G16 多 monitor 实例并存时告警互相串扰（运行态，非 DSL 表达力）
+
+- 现状：多个 baseline-guard monitor 并存时各自加载规则快照、各自维护节流状态、消费同一批内核事件并落同一系统告警库（/var/lib/baseline-guard/baseline.db）。残留旧实例（规则集不同）会与新实例对同一事件产出不同 rule_id 的告警（W6 D2 实测：残留实例无 persist-container-docker-exec，命中落到示例规则 dsl.docker_cli_executed_inside_container，case-22 出现"同一动作有时命中 core 有时命中 examples"的假象）。
+- 本次应对：run_all.sh 启动前清理残留 monitor 进程；文档记录该现象以免误判为规则/引擎不确定性。
+- v2 方向：monitor 启动时检测同 config 的存活实例（pidfile/flock 互斥）。

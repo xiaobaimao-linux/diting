@@ -5,11 +5,11 @@
 # cred-read-shadow：示例规则 Read Etc Shadow By Unusual Process 的扩充变体（原规则保留）
 - rule: Cred Read Shadow Whitelist
   desc: 非白名单进程读取 /etc/shadow 或 /etc/gshadow，疑似凭据窃取；示例规则的扩充变体（加 /etc/gshadow、扩白名单、ATT&CK 细化到 T1003.008），原示例规则保留不动
-  condition: event_type = file.read and file.path in (/etc/shadow, /etc/gshadow) and not process.exe in (/usr/bin/passwd, /bin/passwd, /usr/sbin/sshd, /usr/bin/sudo, /bin/sudo, /usr/bin/chage, /usr/sbin/chage, /usr/sbin/unix_chkpwd, /usr/bin/su, /bin/su, /usr/bin/login, /bin/login, /usr/bin/newgrp, /usr/sbin/pwck, /usr/sbin/grpck)
+  condition: event_type = file.read and file.path in (/etc/shadow, /etc/gshadow) and not process.exe in (/usr/bin/passwd, /bin/passwd, /usr/sbin/sshd, /usr/bin/sudo, /bin/sudo, /usr/bin/chage, /usr/sbin/chage, /usr/sbin/unix_chkpwd, /usr/bin/su, /bin/su, /usr/bin/login, /bin/login, /usr/bin/newgrp, /usr/sbin/pwck, /usr/sbin/grpck) and not process.comm in (cron, crond)
   output: "敏感凭据文件被读取 (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid file=%file.path container=%container.container_id)"
   priority: high
   attack: [T1003.008, TA0006]
-  fpr_note: 备份软件、配置管理 agent、安全巡检会周期性读取；pwck/grpck/login/newgrp 已按本机实测合法读取者补入白名单，现场再有命中按 exe 补白即可
+  fpr_note: 备份软件、配置管理 agent、安全巡检会周期性读取；pwck/grpck/login/newgrp 已按本机实测合法读取者补入白名单，现场再有命中按 exe 补白即可；cron 守护进程每次重启/任务派发都会经 PAM 读 shadow（其子进程 exe 富化为空、只有 comm=cron 可用，W6 D2 误报专项实测），已按 comm 豁免——comm 可伪造，属刻意的噪声/检出权衡；dpkg-preconfigure 等 perl 系系统工具读 shadow 无法按脚本名豁免（解释器 exe 是 perl 本体，argv 不可见 G1），维持告警按祖先链研判
   response: 确认进程合法性；非预期则沿祖先链溯源启动者，检查是否伴随提权（priv.setuid）与外联，冻结进程并取证
 
 # cred-write-passwd：写 /etc/passwd（任何进程）

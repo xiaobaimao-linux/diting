@@ -1,0 +1,46 @@
+# 持久化类核心规则（TA0003 Persistence / TA0005 Defense Evasion）——W6 D2
+# 引擎约束（详见 docs/rule-engine-gaps.md）：
+#   - file 事件仅覆盖 config.yaml rules: 注册的 inode（G6），/etc/cron.d/、/etc/systemd/system/
+#     这类目录规则在生产需逐文件注册（v2 目录前缀注册方向），测试用替身路径（G7 无路径变量，硬编码进 condition）；
+#   - file.write 只对真实 write(2) 字节产生（G9），用例用追加写触发；
+#   - exec 事件无环境变量采集（G13），LD_PRELOAD 环境变量注入不可表达，persist-ld-preload 只覆盖文件面。
+
+# persist-crontab-tamper：写/删 crontab 配置
+- rule: Persist Crontab Tamper
+  desc: 写入或删除 crontab 配置（/etc/crontab、/etc/cron.d/、/var/spool/cron/），疑似计划任务持久化；/tmp/bg-attack-cases/crontab-copy 是攻击用例的测试替身路径，生产部署可从列表移除（目录类路径受 G6 限制需逐文件注册才出事件）
+  condition: event_type in (file.write, file.unlink) and (file.path = /etc/crontab or file.path startswith /etc/cron.d/ or file.path startswith /var/spool/cron/ or file.path = /tmp/bg-attack-cases/crontab-copy) and not process.exe in (/usr/bin/crontab, /bin/crontab, /usr/sbin/cron, /usr/sbin/crond)
+  output: "crontab 配置被篡改 (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid file=%file.path container=%container.container_id)"
+  priority: high
+  attack: [T1053.003, TA0003]
+  fpr_note: crontab -e（/usr/bin/crontab）与 cron 守护进程自身的 spool 更新已白名单；配置管理（ansible cron 模块直接写 /etc/cron.d/）、包安装（postinst 落 /etc/cron.d/ 任务，exe 多为 dpkg 调起的 scriptlet）会命中，按 exe 补白；编辑器手工改 /etc/crontab 属双义行为，按变更工单核对
+  response: diff 目标文件与基线快照找出新增条目（执行命令 + 执行用户）；非预期条目立即移除，沿写入进程祖先链溯源，检查条目指向的二进制/脚本本体与下载来源
+
+# persist-systemd-unit-write：写/删 systemd unit 文件
+- rule: Persist Systemd Unit Write
+  desc: 写入或删除 systemd unit（/etc/systemd/system/、用户级 ~/.config/systemd/），疑似服务持久化；/tmp/bg-attack-cases/unit-copy.service 是攻击用例的测试替身路径，生产部署可从列表移除
+  condition: event_type in (file.write, file.unlink) and (file.path startswith /etc/systemd/system/ or file.path contains /.config/systemd/ or file.path = /tmp/bg-attack-cases/unit-copy.service) and not process.exe in (/usr/bin/systemctl, /bin/systemctl, /usr/lib/systemd/systemd, /lib/systemd/systemd)
+  output: "systemd unit 被写入/删除 (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid file=%file.path container=%container.container_id)"
+  priority: high
+  attack: [T1543.002, TA0003]
+  fpr_note: systemctl edit/enable 与 systemd 自身已白名单（注意 systemctl enable 主要是建符号链接，rename/unlink 事件另计）；包管理装服务（dpkg/rpm 落 unit）、配置管理推送 unit 会命中，按 exe 补白；命中域受 G6 注册限制，生产建议把 /etc/systemd/system/ 下既有 unit 与常用落点逐文件注册
+  response: 审查 unit 内容（ExecStart 指向、User、Restart 策略）；非预期 unit 立即 systemctl disable + 删除，排查写入进程入侵路径，检查是否已 systemctl start 形成存活进程
+
+# persist-ld-preload：写 /etc/ld.so.preload（LD_PRELOAD 环境变量注入不可见，G13）
+- rule: Persist Ld Preload Tamper
+  desc: 写入或删除 /etc/ld.so.preload，疑似动态链接库劫持（全系统进程注入）；LD_PRELOAD/LD_LIBRARY_PATH 环境变量注入因 exec 事件无环境变量采集不可表达（G13），本规则只覆盖文件面；/tmp/bg-attack-cases/ld.so.preload-copy 是攻击用例的测试替身路径，生产部署可从列表移除
+  condition: event_type in (file.write, file.unlink) and file.path in (/etc/ld.so.preload, /tmp/bg-attack-cases/ld.so.preload-copy)
+  output: "ld.so.preload 被篡改 (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid file=%file.path container=%container.container_id)"
+  priority: critical
+  attack: [T1574.006, TA0005, TA0003]
+  fpr_note: /etc/ld.so.preload 正常系统几乎无人写（glibc 包更新也不落该文件），白名单刻意留空——任何写入都高危；唯一已知合法场景是安全产品/agent 自身注入与少数性能工具，确认后按 exe 补白；unlink 常见于攻击后清理痕迹，同样高危
+  response: 立即 cat 文件确认被 preload 的 .so 列表；提取 .so 哈希与来源，非预期先清空该文件止血（注意已加载进程仍驻留恶意库），再全面排查动态链接劫持面（LD_AUDIT、/etc/ld.so.conf.d/）
+
+# persist-container-docker-exec：容器内执行 docker 客户端（示例规则 Docker CLI Executed Inside Container 的扩充变体，原规则保留）
+- rule: Persist Container Docker Exec
+  desc: 容器内执行 docker 客户端，疑似利用挂载的 docker.sock 操控宿主机（逃逸前置，可随即创建特权容器完成持久化）；是 rules/examples 示例规则的扩充变体（补祖先链容器运行时归属判定，兼容 exec 事件 container_id 缺失的场景，细化 ATT&CK 到 T1611），原示例规则保留不动（G8：core 先加载，本规则命中时示例规则不再重复告警）
+  condition: event_type = process.exec and process.exe in (/usr/bin/docker, /bin/docker, /usr/local/bin/docker) and (container.container_id != "" or process.ancestors[].comm in (containerd-shim, runc, conmon, containerd))
+  output: "容器内执行 docker 客户端 (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid container=%container.container_id)"
+  priority: critical
+  attack: [T1611, T1609, TA0004, TA0003]
+  fpr_note: CI 构建容器（挂载 docker.sock 的 builder，docker build/push）属预期高频命中；v1 无容器镜像字段（schema 已知边界），无法按镜像建例外，可对固定 CI 入口改为收窄 exe 路径或临时关闭本规则；宿主机上用户正常执行 docker 不命中（无容器归属、祖先链无容器运行时）
+  response: 确认该容器是否业务所需构建容器；非预期立即停容器，审计其 docker.sock 挂载来源与已执行的 docker 操作（docker events / 新建容器列表），检查是否已创建特权容器或挂载宿主根目录完成逃逸

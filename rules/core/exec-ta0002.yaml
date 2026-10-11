@@ -7,11 +7,11 @@
 # exec-reverse-shell-bash：shell 被反弹 shell 常用父进程派生
 - rule: Exec Reverse Shell Under Interpreter
   desc: bash/sh 等 shell 被 nc/socat/python/perl 等网络工具或解释器派生，疑似反弹 shell（-i 与 socket stdin 判定为引擎缺口 G1/G2，以父进程链近似）
-  condition: event_type = process.exec and process.exe in (/bin/bash, /usr/bin/bash, /bin/sh, /usr/bin/sh, /bin/dash, /usr/bin/dash, /bin/zsh, /usr/bin/zsh, /bin/ash) and process.ancestors[].comm in (nc, nc.openbsd, nc.traditional, ncat, netcat, socat, python, python2, python3, perl, php, ruby, lua, gawk, mawk, busybox)
+  condition: event_type = process.exec and process.exe in (/bin/bash, /usr/bin/bash, /bin/sh, /usr/bin/sh, /bin/dash, /usr/bin/dash, /bin/zsh, /usr/bin/zsh, /bin/ash) and process.ancestors[].comm in (nc, nc.openbsd, nc.traditional, ncat, netcat, socat, python, python2, python3, perl, php, ruby, lua, gawk, mawk, busybox) and not process.comm in (apt-key)
   output: "疑似反弹 shell：shell 由解释器/网络工具派生 (rule=%rule.name exe=%process.exe pid=%process.pid ppid=%process.ppid uid=%process.uid container=%container.container_id)"
   priority: critical
   attack: [T1059.004, TA0002]
-  fpr_note: 配置管理（ansible/salt 以 python 派生 /bin/sh 执行模块）、数据处理管道（awk 调 system()）、包管理 maintainer 脚本会命中；确认是已知工具后可把对应父 comm 从列表移除
+  fpr_note: 配置管理（ansible/salt 以 python 派生 /bin/sh 执行模块）、数据处理管道（awk 调 system()）、包管理 maintainer 脚本会命中；apt update 的 apt-key（dash 脚本，链上带 gpgv/python3，W6 D2 误报专项实测）已按 comm 豁免——comm 可伪造，属刻意的噪声/检出权衡；确认是已知工具后可把对应父 comm 从列表移除
   response: 查看该 shell 的祖先链（alerts.ancestors）确认启动者身份；非预期则检查同一进程链的后续外联与落盘文件，确认攻击后隔离主机并取证父进程镜像
 
 # exec-reverse-shell-interpreter：双用途网络工具执行（python/perl cmdline 特征不可表达，G1）

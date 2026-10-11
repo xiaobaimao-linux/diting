@@ -1,0 +1,45 @@
+# 提权/逃逸类核心规则（TA0004 Privilege Escalation）——W6 D2
+# 引擎约束（详见 docs/rule-engine-gaps.md）：
+#   - file.new_mode 渲染时被 &0777 掩掉 setuid/setgid/sticky 位（G11），SUID 判定退化为执行位启发式；
+#   - DSL 无位运算操作符（G12），ns.flags 组合位只能枚举常见取值；
+#   - file 事件仅覆盖 config.yaml rules: 注册的 inode（G6），测试替身路径选型同 D1（G7）。
+
+# priv-suid-file-create：chmod 设置 SUID 位（new_mode 高位被掩且渲染为 rwx 符号串，G11/G15，以 4755→rwxr-xr-x 形态近似）
+- rule: Priv Suid File Create
+  desc: 文件被 chmod 为 rwxr-xr-x（0755 类）权限，疑似 chmod 4755/u+s 设置 SUID 位（file.new_mode 渲染 &0777 掩掉高位且输出 rwx 符号串而非文档所述八进制，04755 与 0755 均渲染为 rwxr-xr-x 不可区分，见 G11/G15；u+s 作用于 0644 文件时渲染为 rw-r--r-- 完全不可见）；/tmp/bg-attack-cases/suid-target.conf 是攻击用例的测试替身路径，命中域实际受 G6 注册 inode 限制
+  condition: event_type = file.chmod and file.new_mode = rwxr-xr-x and not process.exe in (/usr/bin/dpkg, /bin/dpkg, /usr/bin/dpkg-deb, /usr/bin/rpm, /usr/bin/install, /bin/install)
+  output: "疑似 SUID 位设置 (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid file=%file.path mode=%file.new_mode container=%container.container_id)"
+  priority: high
+  attack: [T1548.001, TA0004]
+  fpr_note: 普通 chmod 755（脚本赋可执行权）与 chmod 4755 渲染结果相同（G11），必然混入；file 事件只覆盖注册 inode（G6），生产环境命中域=受监控敏感文件，chmod 755 敏感文件本身即值得审计；包管理器（dpkg/rpm/install）已按 exe 白名单豁免，现场构建系统（make install 调 install/chmod）命中时补白名单即可
+  response: stat 该文件确认真实 mode 是否含 4xxx 高位（告警中 new_mode 已被掩码不可信）；含 SUID 位则核对变更工单，非预期立即 chmod u-s 并沿祖先链溯源操作者，检查该进程后续的提权利用痕迹
+
+# priv-ptrace-attach：非白名单进程 ptrace attach（调试器白名单豁免）
+- rule: Priv Ptrace Attach
+  desc: 非白名单进程对其他进程发起 PTRACE_ATTACH/SEIZE，疑似进程注入或凭据嗅探（gdb/strace/ltrace 等调试器已白名单）
+  condition: event_type = priv.ptrace and priv.request in (PTRACE_ATTACH, PTRACE_SEIZE) and not process.exe in (/usr/bin/gdb, /bin/gdb, /usr/bin/gdbserver, /usr/bin/strace, /bin/strace, /usr/bin/ltrace, /usr/bin/lldb, /usr/bin/rr, /usr/bin/perf)
+  output: "可疑 ptrace attach (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid target_pid=%priv.target_pid request=%priv.request container=%container.container_id)"
+  priority: high
+  attack: [T1055.008, TA0004]
+  fpr_note: 调试器（gdb/strace/ltrace/lldb/rr/perf）已白名单；未覆盖的调试工具（py-spy、jstack 类 JVM attach、仓颉/go delve）会命中，按 exe 补白；yama ptrace_scope=1 已挡掉大部分非 root attach，命中者多为 root 行为，噪声天然较低；安全产品自身（falco 类）做进程内存扫描时需自行补白
+  response: 确认 attach 发起者身份与目的（祖先链 + target_pid 指向的进程）；非调试场景则检查发起进程是否有后续内存读写（PTRACE_POKEDATA）与落盘，冻结发起进程并取证目标进程地址空间
+
+# priv-kernel-module-load：加载内核模块（常见自动加载模块白名单）
+- rule: Priv Kernel Module Load
+  desc: 内核模块被加载（insmod/modprobe/自动按需加载），rootkit 与防御绕过的常见前置；发行版高频自动加载模块（overlay/bridge/netfilter 家族）已白名单，系统启动期 systemd-modules-load 行为靠模块名白名单吸收
+  condition: event_type = priv.module_load and not priv.name in (overlay, br_netfilter, bridge, veth, vxlan, tun, tap, bonding, nf_conntrack, nf_nat, nf_tables, nfnetlink, ip_tables, ip6_tables, iptable_nat, iptable_filter, iptable_mangle, ip6table_nat, ip6table_filter, x_tables, xt_conntrack, xt_nat, xt_MASQUERADE, xt_addrtype, aufs)
+  output: "内核模块加载 (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid module=%priv.name container=%container.container_id)"
+  priority: high
+  attack: [T1547.006, TA0004]
+  fpr_note: 系统启动期（systemd-modules-load 加载 /etc/modules 清单）、docker/containerd 首次启动触发 netfilter 家族按需加载属正常噪声，常见名已白名单；新硬件热插拔（usb-storage、snd_*）、VPN（wireguard）、虚拟化（vboxdrv/kvm）按需加载会命中，确认后补 priv.name 白名单；同名合法模块被替换路径加载（insmod /tmp/x.ko 伪装）本规则无法区分路径（事件无模块路径字段，记 G14）
+  response: lsmod/modinfo 核对模块来源与签名；非预期模块立即 rmmod 并排查加载进程祖先链；检查 /etc/modules-load.d、/lib/modules 变动与 dmesg 时间线，确认是否 rootkit（对拍 /proc/modules 与 sys_module 枚举）
+
+# priv-unshare-userns：unshare 创建 user namespace（ns.flags 数值判定，G10/G12）
+- rule: Priv Unshare User Namespace
+  desc: 进程调用 unshare 创建 user namespace（CLONE_NEWUSER=0x10000000），容器逃逸与本地提权（如 CVE-2024-1086 类内核 exploit）的典型前置；用 ns.flags 数值判定（ns.names 元素无 CLONE_ 前缀与文档不符，见 G10；无位运算，仅枚举纯 NEWUSER 与 NEWUSER|NEWNS 两种常见组合，见 G12）
+  condition: event_type = ns.unshare and ns.flags in (268435456, 268566528)
+  output: "创建 user namespace (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid ns_flags=%ns.flags container=%container.container_id)"
+  priority: high
+  attack: [T1611, TA0004]
+  fpr_note: 容器正常运行噪声：runc/containerd 用 clone 建 ns 不触发本规则，但 rootless 容器（podman unshare、rootless docker 的 unshare 调用）、bubblewrap/flatpak、bwrap 沙箱、用户手工 unshare -U 调试会命中；固定业务（如 CI 用 bwrap 跑构建）确认后按 exe 加白；chrome/electron 渲染进程沙箱走 clone 不命中；组合位不在枚举内（如 -U -m -p 三组合）会漏报，需位运算支持（G12）
+  response: 确认进程身份与目的（祖先链 + 是否 rootless 容器运行时）；非容器/沙箱场景下创建 userns 高度可疑，立即冻结进程，检查是否伴随内核 exploit 痕迹（dmesg oops、capset 异常）与后续挂载/逃逸动作
