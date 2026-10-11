@@ -82,6 +82,10 @@ struct AlertRecord {
     std::string container_id;   // 12 位容器短 ID（M0-1，老库为空串）
     std::string ancestors;      // 祖先链 JSON 数组串（M0-1，老库为空串）
     std::string attack;         // ATT&CK 技术 ID（逗号分隔，W4 DSL 规则；老库/旧告警为空串）
+    // AI 升级字段（W6 D4；老库/未升级告警为空串/0）
+    std::string severity_origin;    // 升级前原始级别
+    bool escalated = false;         // 是否命中 AI 升级
+    std::string escalation_reason;  // process_ai_workload / model_file_target（逗号连接）
 };
 
 // M1-2 资产清点记录（assets 表）
@@ -161,6 +165,9 @@ public:
     // 按类型查询资产，asset_type 为空串表示全部；limit<=0 表示不限制
     std::vector<AssetRecord> GetAssets(const std::string& asset_type, std::int64_t limit,
                                        std::int64_t offset);
+
+    // 按 (asset_type, name) 精确查询单条资产（W6 D4 AI 升级判定用），不存在返回 false
+    bool GetAsset(const std::string& asset_type, const std::string& name, AssetRecord& out);
 
     // 查询基线
     BaselineRecord GetBaseline(const std::string& file_path);

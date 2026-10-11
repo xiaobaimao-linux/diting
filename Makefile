@@ -63,6 +63,7 @@ BPF_PROC_SKEL = bpf/proc_watch.skel.h
 
 # 用户态源文件
 MAIN_SRCS = src/main.cpp \
+            src/alerts/ai_boost.cpp \
             src/alerts/alert_manager.cpp \
             src/alerts/webhook_notifier.cpp \
             src/alerts/notify_dispatcher.cpp \
@@ -83,6 +84,7 @@ MAIN_SRCS = src/main.cpp \
             src/cis/cis_exec.cpp \
             src/cis/cis_judge.cpp \
             src/cis/cis_main.cpp \
+            src/cis/cis_report.cpp \
             src/cis/cis_store.cpp \
             src/cli/config.cpp \
             src/common/commonfun.cpp \

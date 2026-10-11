@@ -307,6 +307,7 @@ void on_violation_detected(const Rule& rule,
         evt.ancestors    = actor->ancestors_json;
     }
 
+    alert_mgr.MaybeBoostForAi(evt);  // AI 升级（W6 D4）：命中资产则级别升一级
     alert_mgr.SendDingTalk(evt);
 }
 
@@ -402,6 +403,7 @@ void on_check_mismatch_detected(const Rule& rule,
         evt.ancestors    = actor->ancestors_json;
     }
 
+    alert_mgr.MaybeBoostForAi(evt);  // AI 升级（W6 D4）
     alert_mgr.SendDingTalk(evt);
 }
 
@@ -1307,6 +1309,7 @@ static void send_dsl_alert(const detect::Rule& rule, const std::string& output,
             evt.attack += ',';
         evt.attack += rule.attack[i];
     }
+    alert_mgr->MaybeBoostForAi(evt);  // AI 升级（W6 D4）
     alert_mgr->SendDingTalk(evt);
 }
 

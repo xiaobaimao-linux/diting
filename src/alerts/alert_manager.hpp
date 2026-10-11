@@ -3,9 +3,11 @@
 #include <unordered_map>
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 #include "alert_event.hpp"
+#include "ai_boost.hpp"
 #include "baseline_db.hpp"
 #include "config.hpp"
 #include "notify_dispatcher.hpp"
@@ -56,6 +58,11 @@ public:
     // 返回值: 钉钉是否实际发送成功（被节流返回 false，但仍会落库）
     bool SendDingTalk(const AlertEvent& event);
 
+    // AI 告警升级（W6 D4）：SendDingTalk 前由告警构建点调用。
+    // db_ 未绑定时 no-op；命中资产则升级级别并填 severity_origin/escalated/
+    // escalation_reason。内部持 BoostCache（TTL 60s），热路径不反复查库。
+    void MaybeBoostForAi(AlertEvent& event);
+
     // 非侵入式节流窥探（不更新节流时间戳）：调用方可用它在构建 AlertEvent
     // 之前跳过无用功——节流窗口内 SendDingTalk 本来就不发不存。
     // 单线程调用（消费线程），与 SendDingTalk 的 IsThrottled 判定同源。
@@ -88,7 +95,11 @@ private:
     int throttle_seconds_ = 300;
     int retention_days_ = 30;          // 0=永久保留
     int retention_max_records_ = 10000; // 0=不限制
+    int ai_boost_stale_seconds_ = 7200; // AI 资产标记新鲜度阈值（alert.ai_boost.stale_seconds）
     BaselineDB* db_ = nullptr;
+    // AI 升级判定缓存：首次使用时以 db_ + ai_boost_stale_seconds_ 惰性构造
+    // （LoadConfig 先于 SetDB 调用，顺序无关）
+    std::unique_ptr<ai_boost::BoostCache> boost_cache_;
 
     // 记录每条规则最近一次告警时间: rule_id -> 上次告警时间点
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> last_alert_time_;

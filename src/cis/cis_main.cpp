@@ -3,6 +3,7 @@
 #include "cis_check.hpp"
 #include "cis_exec.hpp"
 #include "cis_judge.hpp"
+#include "cis_report.hpp"
 #include "cis_store.hpp"
 #include "commonfun.hpp"
 #include "nlohmann/json.hpp"
@@ -10,9 +11,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -49,7 +52,8 @@ void PrintCisUsage() {
               << "\n"
               << "Common options:\n"
               << "  --db PATH    SQLite database path (default: " << kDefaultDb << ")\n"
-              << "  --json       output structured JSON\n"
+              << "  --json       output structured JSON (legacy array format;\n"
+              << "               for report, --format json gives the v1 schema)\n"
               << "\n"
               << "check options:\n"
               << "  --defs PATH      check definition YAML (default: " << kDefaultDefs << ")\n"
@@ -57,8 +61,12 @@ void PrintCisUsage() {
               << "                   (default: AUTH,SSH,MISC)\n"
               << "\n"
               << "report options:\n"
-              << "  --level L    filter by severity: high|medium|low\n"
-              << "  --result R   filter by result: pass|fail|warn\n"
+              << "  --level L      filter by severity: high|medium|low\n"
+              << "  --result R     filter by result: pass|fail|warn\n"
+              << "  --format F     output format: text|json|html (default: text;\n"
+              << "                 takes precedence over --json; html/json schema\n"
+              << "                 see docs/cis-report-format-v1.md)\n"
+              << "  --out PATH     write report to file (default: stdout)\n"
               << "  -h, --help   display this message\n";
 }
 
@@ -286,6 +294,21 @@ int RunCheck(int argc, char* argv[]) {
     return 0;
 }
 
+// 写报告内容到 out_path（空则写 stdout）；失败返回 false
+bool WriteReportOutput(const std::string& content, const std::string& out_path) {
+    if (out_path.empty()) {
+        std::cout << content << std::endl;
+        return true;
+    }
+    std::ofstream ofs(out_path, std::ios::binary | std::ios::trunc);
+    if (!ofs.is_open()) {
+        std::cerr << "Error: cannot open output file: " << out_path << "\n";
+        return false;
+    }
+    ofs << content;
+    return static_cast<bool>(ofs);
+}
+
 int RunReport(int argc, char* argv[]) {
     CommonOptions common;
     bool help = false;
@@ -299,6 +322,8 @@ int RunReport(int argc, char* argv[]) {
 
     std::string level;
     std::string result_filter;
+    std::string format;
+    std::string out_path;
     for (int i = 0; i < argc; ++i) {
         if (consumed[i]) continue;
         const std::string arg = argv[i];
@@ -318,6 +343,22 @@ int RunReport(int argc, char* argv[]) {
             }
         } else if (arg.rfind("--result=", 0) == 0) {
             result_filter = arg.substr(9);
+        } else if (arg == "--format") {
+            if (!TakeArgValue(i, argc, argv, arg, format)) {
+                std::cerr << "Error: missing value for --format\n";
+                PrintCisUsage();
+                return 2;
+            }
+        } else if (arg.rfind("--format=", 0) == 0) {
+            format = arg.substr(9);
+        } else if (arg == "--out") {
+            if (!TakeArgValue(i, argc, argv, arg, out_path)) {
+                std::cerr << "Error: missing value for --out\n";
+                PrintCisUsage();
+                return 2;
+            }
+        } else if (arg.rfind("--out=", 0) == 0) {
+            out_path = arg.substr(6);
         } else {
             std::cerr << "Error: unknown report option: " << arg << "\n";
             PrintCisUsage();
@@ -337,11 +378,23 @@ int RunReport(int argc, char* argv[]) {
         std::cerr << "Error: invalid result: " << result_filter << " (pass|fail|warn)\n";
         return 2;
     }
+    if (!format.empty() && format != "text" && format != "json" && format != "html") {
+        std::cerr << "Error: invalid format: " << format << " (text|json|html)\n";
+        return 2;
+    }
 
     CisStore store(common.db_path);
     const std::vector<CisResultRow> rows = store.GetLatest(level, result_filter);
 
-    if (common.json_output) {
+    // --format 优先于旧 --json 开关
+    if (format == "json") {
+        return WriteReportOutput(cis::RenderCisReportJson(rows, GetHostname()), out_path) ? 0 : 1;
+    }
+    if (format == "html") {
+        return WriteReportOutput(cis::RenderCisReportHtml(rows, GetHostname()), out_path) ? 0 : 1;
+    }
+
+    if (format.empty() && common.json_output) {
         json root = json::array();
         for (const auto& row : rows) {
             root.push_back(RowToJson(row));
@@ -350,16 +403,23 @@ int RunReport(int argc, char* argv[]) {
         return 0;
     }
 
+    // text 格式（默认）：现有表格行为不变；指定 --out 时写入文件
+    std::ostringstream text_buf;
+    std::ostream& os = out_path.empty() ? std::cout : text_buf;
+
     if (rows.empty()) {
-        std::cout << "No cis results found." << std::endl;
+        os << "No cis results found." << std::endl;
+        if (!out_path.empty()) {
+            return WriteReportOutput(text_buf.str(), out_path) ? 0 : 1;
+        }
         return 0;
     }
 
-    std::cout << std::left << std::setw(10) << "CHECK_ID" << std::setw(9) << "SEVERITY"
-              << std::setw(8) << "RESULT" << std::setw(12) << "COMPLIANCE"
-              << std::setw(42) << "DESCRIPTION" << std::setw(21) << "CHECKED_AT"
-              << "HOST" << std::endl;
-    std::cout << std::string(120, '-') << std::endl;
+    os << std::left << std::setw(10) << "CHECK_ID" << std::setw(9) << "SEVERITY"
+       << std::setw(8) << "RESULT" << std::setw(12) << "COMPLIANCE"
+       << std::setw(42) << "DESCRIPTION" << std::setw(21) << "CHECKED_AT"
+       << "HOST" << std::endl;
+    os << std::string(120, '-') << std::endl;
     int pass_count = 0;
     int fail_count = 0;
     int warn_count = 0;
@@ -372,16 +432,19 @@ int RunReport(int argc, char* argv[]) {
             }
             desc = desc.substr(0, cut) + "..";
         }
-        std::cout << std::left << std::setw(10) << row.check_id << std::setw(9)
-                  << row.severity << std::setw(8) << row.result << std::setw(12)
-                  << row.compliance << std::setw(42) << desc << std::setw(21)
-                  << row.checked_at << row.host << std::endl;
+        os << std::left << std::setw(10) << row.check_id << std::setw(9)
+           << row.severity << std::setw(8) << row.result << std::setw(12)
+           << row.compliance << std::setw(42) << desc << std::setw(21)
+           << row.checked_at << row.host << std::endl;
         if (row.result == "pass") ++pass_count;
         if (row.result == "fail") ++fail_count;
         if (row.result == "warn") ++warn_count;
     }
-    std::cout << "rows: " << rows.size() << " (pass " << pass_count << " / fail "
-              << fail_count << " / warn " << warn_count << ")" << std::endl;
+    os << "rows: " << rows.size() << " (pass " << pass_count << " / fail "
+       << fail_count << " / warn " << warn_count << ")" << std::endl;
+    if (!out_path.empty()) {
+        return WriteReportOutput(text_buf.str(), out_path) ? 0 : 1;
+    }
     return 0;
 }
 

@@ -92,6 +92,17 @@ void AlertManager::LoadConfig(const AlertConfig& alert_cfg, const DbConfig& db_c
     throttle_seconds_  = alert_cfg.throttle_seconds;
     retention_days_    = db_cfg.retention_days;
     retention_max_records_ = db_cfg.retention_max_records;
+    ai_boost_stale_seconds_ = alert_cfg.ai_boost_stale_seconds;
+}
+
+void AlertManager::MaybeBoostForAi(AlertEvent& event) {
+    if (!db_) {
+        return;
+    }
+    if (!boost_cache_) {
+        boost_cache_ = std::make_unique<ai_boost::BoostCache>(db_, ai_boost_stale_seconds_);
+    }
+    boost_cache_->MaybeBoost(event);
 }
 
 void AlertManager::SetDB(BaselineDB* db) {
@@ -221,6 +232,9 @@ void AlertManager::SaveAlertToDB(const AlertEvent& event, bool dingtalk_sent) {
     record.container_id = event.container_id;
     record.ancestors    = event.ancestors;
     record.attack       = event.attack;
+    record.severity_origin = event.severity_origin;
+    record.escalated    = event.escalated;
+    record.escalation_reason = event.escalation_reason;
     record.dingtalk_sent = dingtalk_sent;
     record.recorded_at  = event.timestamp.empty() ? NowString() : event.timestamp;
 
@@ -303,6 +317,10 @@ bool AlertManager::SendDingTalk(const AlertEvent& event) {
     md += "**规则ID**: " + event.rule_id + "\n\n";
     md += "**规则名称**: " + event.rule_name + "\n\n";
     md += "**严重级别**: " + event.severity + "\n\n";
+    if (event.escalated) {
+        md += "**AI 升级**: " + event.severity_origin + " → " + event.severity +
+              " (" + event.escalation_reason + ")\n\n";
+    }
     md += "**文件路径**: `" + event.file_path + "`\n\n";
     md += "**预期值**: `" + event.expected + "`\n\n";
     md += "**实际值**: `" + event.actual + "`\n\n";

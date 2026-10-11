@@ -15,6 +15,7 @@ struct AlertConfig {
     std::string dingtalk_webhook;
     std::string dingtalk_secret;
     int throttle_seconds = 300;       // 钉钉节流：默认5分钟
+    int ai_boost_stale_seconds = 7200; // AI 升级资产标记新鲜度阈值（alert.ai_boost.stale_seconds）
 };
 
 // 数据库配置（独立节点 db:）

@@ -22,6 +22,9 @@ struct AlertsColumns {
     bool container_id = false;
     bool ancestors = false;
     bool attack = false;
+    bool severity_origin = false;
+    bool escalated = false;
+    bool escalation_reason = false;
 };
 
 // PRAGMA table_info 探测 alerts 表已有列
@@ -41,6 +44,9 @@ AlertsColumns ProbeAlertsColumns(sqlite3* db) {
         else if (col == "container_id") cols.container_id = true;
         else if (col == "ancestors")    cols.ancestors = true;
         else if (col == "attack")       cols.attack = true;
+        else if (col == "severity_origin")    cols.severity_origin = true;
+        else if (col == "escalated")          cols.escalated = true;
+        else if (col == "escalation_reason")  cols.escalation_reason = true;
     }
     sqlite3_finalize(stmt);
     return cols;
@@ -57,6 +63,9 @@ std::string BuildAlertsSelect(const AlertsColumns& cols) {
     sql += cols.container_id ? "container_id, " : "'' AS container_id, ";
     sql += cols.ancestors ? "ancestors, " : "'' AS ancestors, ";
     sql += cols.attack ? "attack" : "'' AS attack";
+    sql += cols.severity_origin ? ", severity_origin" : ", '' AS severity_origin";
+    sql += cols.escalated ? ", escalated" : ", 0 AS escalated";
+    sql += cols.escalation_reason ? ", escalation_reason" : ", '' AS escalation_reason";
     return sql;
 }
 
@@ -128,7 +137,10 @@ void BaselineDB::InitTable() {
             actual TEXT,
             action_taken TEXT,
             dingtalk_sent INTEGER DEFAULT 0,
-            recorded_at TEXT NOT NULL
+            recorded_at TEXT NOT NULL,
+            severity_origin TEXT DEFAULT '',
+            escalated INTEGER DEFAULT 0,
+            escalation_reason TEXT DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_alerts_rule_id ON alerts(rule_id);
         CREATE INDEX IF NOT EXISTS idx_alerts_time ON alerts(recorded_at);
@@ -218,6 +230,13 @@ void BaselineDB::InitTable() {
         sqlite3_exec(db_, "ALTER TABLE alerts ADD COLUMN ancestors TEXT;", nullptr, nullptr, nullptr);
     if (!alerts_cols.attack)
         sqlite3_exec(db_, "ALTER TABLE alerts ADD COLUMN attack TEXT;", nullptr, nullptr, nullptr);
+    // AI 升级列（W6 D4）：新库 CREATE TABLE 已含，老库按探测结果补加
+    if (!alerts_cols.severity_origin)
+        sqlite3_exec(db_, "ALTER TABLE alerts ADD COLUMN severity_origin TEXT DEFAULT '';", nullptr, nullptr, nullptr);
+    if (!alerts_cols.escalated)
+        sqlite3_exec(db_, "ALTER TABLE alerts ADD COLUMN escalated INTEGER DEFAULT 0;", nullptr, nullptr, nullptr);
+    if (!alerts_cols.escalation_reason)
+        sqlite3_exec(db_, "ALTER TABLE alerts ADD COLUMN escalation_reason TEXT DEFAULT '';", nullptr, nullptr, nullptr);
 
     const char *copy_sql = R"SQL(
         INSERT OR IGNORE INTO baseline_entries
@@ -610,8 +629,9 @@ void BaselineDB::SaveAlert(const AlertRecord &record) {
             INSERT INTO alerts
             (rule_id, rule_name, severity, file_path, event_type,
              process_name, pid, user_name, uid, expected, actual, action_taken,
-             dingtalk_sent, recorded_at, exe, container_id, ancestors, attack)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+             dingtalk_sent, recorded_at, exe, container_id, ancestors, attack,
+             severity_origin, escalated, escalation_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         )";
 
     sqlite3_stmt *stmt = nullptr;
@@ -635,6 +655,9 @@ void BaselineDB::SaveAlert(const AlertRecord &record) {
     sqlite3_bind_text(stmt, 16, record.container_id.c_str(), -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 17, record.ancestors.c_str(), -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 18, record.attack.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 19, record.severity_origin.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 20, record.escalated ? 1 : 0);
+    sqlite3_bind_text(stmt, 21, record.escalation_reason.c_str(), -1, SQLITE_STATIC);
 
     if (sqlite3_step(stmt) != SQLITE_DONE) {
         spdlog::error("Save alert failed: {}", sqlite3_errmsg(db_));
@@ -799,6 +822,20 @@ static AlertRecord ReadAlertRecord(sqlite3_stmt* stmt) {
         const auto* atk = sqlite3_column_text(stmt, 17);
         if (atk != nullptr)
             r.attack = reinterpret_cast<const char*>(atk);
+    }
+    // AI 升级列（W6 D4，NULL 视为空串/0）
+    if (ncols > 18) {
+        const auto* so = sqlite3_column_text(stmt, 18);
+        if (so != nullptr)
+            r.severity_origin = reinterpret_cast<const char*>(so);
+    }
+    if (ncols > 19) {
+        r.escalated = sqlite3_column_int(stmt, 19) != 0;
+    }
+    if (ncols > 20) {
+        const auto* er = sqlite3_column_text(stmt, 20);
+        if (er != nullptr)
+            r.escalation_reason = reinterpret_cast<const char*>(er);
     }
     return r;
 }
@@ -1362,6 +1399,39 @@ AssetUpsertResult BaselineDB::UpsertAssets(const std::vector<AssetRecord>& asset
         throw std::runtime_error("UpsertAssets: " + fail_reason);
     }
     return result;
+}
+
+// 按 (asset_type, name) 精确查询单条资产（W6 D4 AI 升级判定用）
+bool BaselineDB::GetAsset(const std::string& asset_type, const std::string& name,
+                          AssetRecord& out) {
+    const char* sql =
+        "SELECT id, asset_type, name, detail_json, first_seen, last_seen "
+        "FROM assets WHERE asset_type = ? AND name = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        spdlog::error("GetAsset: prepare failed: {}", sqlite3_errmsg(db_));
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, asset_type.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, name.c_str(), -1, SQLITE_TRANSIENT);
+
+    bool found = false;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        out.id = sqlite3_column_int64(stmt, 0);
+        const auto* col = sqlite3_column_text(stmt, 1);
+        out.asset_type = col != nullptr ? reinterpret_cast<const char*>(col) : "";
+        col = sqlite3_column_text(stmt, 2);
+        out.name = col != nullptr ? reinterpret_cast<const char*>(col) : "";
+        col = sqlite3_column_text(stmt, 3);
+        out.detail_json = col != nullptr ? reinterpret_cast<const char*>(col) : "";
+        col = sqlite3_column_text(stmt, 4);
+        out.first_seen = col != nullptr ? reinterpret_cast<const char*>(col) : "";
+        col = sqlite3_column_text(stmt, 5);
+        out.last_seen = col != nullptr ? reinterpret_cast<const char*>(col) : "";
+        found = true;
+    }
+    sqlite3_finalize(stmt);
+    return found;
 }
 
 std::int64_t BaselineDB::CountAssets(const std::string& asset_type) {

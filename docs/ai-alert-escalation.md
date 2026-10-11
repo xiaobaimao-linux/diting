@@ -98,3 +98,25 @@ cat /etc/shadow  (pid=4300, exe=/usr/bin/cat)
 
 合计约 3.5h ≤ 0.5 天。风险：资产采集周期若过长（小时级），短生命周期 AI 进程可能漏标 →
 不升级（退化安全，方向正确）；如需收紧可在 W6 顺带把 `asset collect` 挂进 cron 分钟级。
+
+## W6 D4 实现注记（2026-10-11，已落地）
+
+- **字段名偏离**：设计中的 `ai_boost` 列落地为 `escalation_reason`（取值不变：
+  `process_ai_workload` / `model_file_target`，双命中逗号连接）；另新增 `escalated`
+  （bool，critical 封顶未实际升级时仍为 true）与 `severity_origin`（升级前级别，
+  未升级留空）两列，均在 `AlertEvent`/`AlertRecord`/`alerts` 表同步
+  （新库 CREATE TABLE 带列，老库 PRAGMA 探测 + ALTER 补列，沿用既有加列套路）。
+- **挂钩点**：三处告警构建点统一走 `AlertManager::MaybeBoostForAi(evt)`，置于
+  `SendDingTalk` 之前——`on_violation_detected`、`on_check_mismatch_detected`、
+  DSL 命中 `send_dsl_alert`（monitor.cpp）。规则求值、节流、通知路由均未改动。
+- **实现形态**：判定逻辑独立为 `src/alerts/ai_boost.{hpp,cpp}` 的
+  `ai_boost::BoostCache`（BaselineDB 新增通用只读方法 `GetAsset`）；AlertManager
+  惰性构造（db_ 未绑定则 no-op），stale_seconds 取自 `alert.ai_boost.stale_seconds`
+  （默认 7200）。
+- **缓存**：进程/文件判定结果（含阴性）按 key 缓存，TTL 60s，单线程无锁，
+  命中路径不反复查库、不阻塞消费线程。
+- **时间格式**：`assets.last_seen` 存量有三种格式（NowIso 的 ISO'T' 串、
+  SQLite `datetime('now','localtime')` 空格串、NowString 的紧凑串），
+  新鲜度解析对三者兼容；解析失败按过期处理（宁缺毋滥）。
+- **钉钉模板**："严重级别"行后，escalated 时追加
+  `**AI 升级**: <origin> → <new> (<reason>)`。

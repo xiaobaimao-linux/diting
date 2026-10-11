@@ -119,6 +119,18 @@ static void parseAlertNode(const YAML::Node &alertNode, AlertConfig &alert) {
             spdlog::warn("无法解析 alert.throttle 值: {}", e.what());
         }
     }
+    // AI 告警升级（W6 D4）：资产标记新鲜度阈值
+    if (alertNode["ai_boost"]) {
+        const YAML::Node &boostNode = alertNode["ai_boost"];
+        if (boostNode["stale_seconds"]) {
+            try {
+                alert.ai_boost_stale_seconds = boostNode["stale_seconds"].as<int>();
+                spdlog::info("AI 升级资产新鲜度阈值: {} 秒", alert.ai_boost_stale_seconds);
+            } catch (const YAML::Exception &e) {
+                spdlog::warn("无法解析 alert.ai_boost.stale_seconds 值: {}", e.what());
+            }
+        }
+    }
 }
 
 // notify: 节点解析（告警外发，W5 D4；lenient：字段类型错告警并取默认值）
