@@ -85,6 +85,39 @@ rules:
       events: ["write", "delete"]
       action: "alert"
 
+  # W6 D2 提权/持久化类规则用例：file 事件仅覆盖注册的 inode，DSL 规则内路径必须先在此注册
+  - id: "AC-15"
+    name: "监控 SUID 测试替身 - suid-target.conf"
+    severity: "high"
+    monitor:
+      path: "/tmp/bg-attack-cases/suid-target.conf"
+      events: ["write", "delete", "chmod"]
+      action: "alert"
+
+  - id: "AC-19"
+    name: "监控 crontab 测试替身 - crontab-copy"
+    severity: "high"
+    monitor:
+      path: "/tmp/bg-attack-cases/crontab-copy"
+      events: ["write", "delete"]
+      action: "alert"
+
+  - id: "AC-20"
+    name: "监控 systemd unit 测试替身 - unit-copy.service"
+    severity: "high"
+    monitor:
+      path: "/tmp/bg-attack-cases/unit-copy.service"
+      events: ["write", "delete"]
+      action: "alert"
+
+  - id: "AC-21"
+    name: "监控 ld.so.preload 测试替身 - ld.so.preload-copy"
+    severity: "critical"
+    monitor:
+      path: "/tmp/bg-attack-cases/ld.so.preload-copy"
+      events: ["write", "delete"]
+      action: "alert"
+
 alert:
   dingtalk:
     webhook: ""

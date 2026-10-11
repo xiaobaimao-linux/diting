@@ -1,5 +1,5 @@
 #!/bin/bash
-# 攻击用例库批量执行：启动 monitor，14 个用例连跑 2 遍，输出 PASS/FAIL 汇总。
+# 攻击用例库批量执行：启动 monitor，22 个用例连跑 2 遍，输出 PASS/FAIL 汇总。
 # 用法: sudo -n bash tests/attack-cases/run_all.sh        （需要 root：加载 eBPF + 部分攻击动作用 root）
 # 退出码: 0 = 全部用例 × 2 轮 PASS；1 = 有失败项。
 set -u
@@ -15,7 +15,11 @@ CASES="case-01-reverse-shell case-02-read-etc-shadow case-03-chmod-777 \
        case-07-exec-reverse-shell-interpreter case-08-exec-reverse-shell-dualuse \
        case-09-exec-suspicious-tmp-binary case-10-exec-webspawner-shell \
        case-11-cred-read-shadow case-12-cred-write-passwd \
-       case-13-cred-tamper-authorized-keys case-14-cred-clear-history"
+       case-13-cred-tamper-authorized-keys case-14-cred-clear-history \
+       case-15-priv-suid-file-create case-16-priv-ptrace-attach \
+       case-17-priv-kernel-module-load case-18-priv-unshare-userns \
+       case-19-persist-crontab-tamper case-20-persist-systemd-unit-write \
+       case-21-persist-ld-preload case-22-persist-container-docker-exec"
 
 cd "$ROOT_DIR"
 mkdir -p "$WORK_DIR"
@@ -48,6 +52,29 @@ cat > "$WORK_DIR/fakehome/.bash_history" <<'EOF'
 ls -la
 cat /etc/passwd
 EOF
+# W6 D2 提权/持久化类用例的测试替身（同样必须先于 monitor 启动创建；
+# cleanup 用 cat > 原地覆盖恢复，内容与这里保持一致，避免 inode 变化）
+cat > "$WORK_DIR/suid-target.conf" <<'EOF'
+# 攻击用例库 SUID 测试目标
+setuid_option=false
+EOF
+chmod 0644 "$WORK_DIR/suid-target.conf"
+cat > "$WORK_DIR/crontab-copy" <<'EOF'
+# 攻击用例库 crontab 替身（对应 /etc/crontab）
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+17 * * * * root cd / && run-parts --report /etc/cron.hourly
+EOF
+cat > "$WORK_DIR/unit-copy.service" <<'EOF'
+# 攻击用例库 systemd unit 替身（对应 /etc/systemd/system/*.service）
+[Unit]
+Description=Baseline Guard Test Unit
+[Service]
+ExecStart=/bin/true
+EOF
+cat > "$WORK_DIR/ld.so.preload-copy" <<'EOF'
+# 攻击用例库 ld.so.preload 替身（对应 /etc/ld.so.preload）
+EOF
 # /root/.ssh/id_rsa 不存在时生成临时假密钥，cleanup 会删除
 if [ ! -f /root/.ssh/id_rsa ]; then
     mkdir -p /root/.ssh && chmod 700 /root/.ssh
@@ -59,6 +86,15 @@ echo "=== 启动 monitor ==="
 if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
     echo "已有 monitor 在跑（pid $(cat "$PIDFILE")），先停掉"
     kill -TERM "$(cat "$PIDFILE")" 2>/dev/null; sleep 2
+fi
+# 历史会话残留的 monitor 会同时消费事件、各自节流并落同一告警库，造成用例结果串扰
+# （W6 D2 实测：残留实例只有旧规则集，把 dsl.persist_container_docker_exec 的命中抢成
+#  示例规则 dsl.docker_cli_executed_inside_container，case-22 r2 假失败）
+stale=$(pgrep -f "baseline-guard monitor" | grep -v "^$$\$" || true)
+if [ -n "$stale" ]; then
+    echo "发现残留 monitor 进程（$stale），先停掉避免告警串扰"
+    kill -TERM $stale 2>/dev/null; sleep 2
+    pgrep -f "baseline-guard monitor" >/dev/null && kill -KILL $stale 2>/dev/null
 fi
 if [ "$(id -u)" -eq 0 ]; then
     bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/baseline-guard' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/attack-cases/config.yaml'" >"$LOG" 2>&1 &

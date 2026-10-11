@@ -1,6 +1,6 @@
 # baseline-guard 攻击用例库
 
-14 个攻击用例（case-01~06 为 W4/W5 基础用例，case-07~14 为 W6 D1 规则包配套用例），
+22 个攻击用例（case-01~06 为 W4/W5 基础用例，case-07~14 为 W6 D1 规则包配套用例，case-15~22 为 W6 D2 规则包配套用例），
 每个用例 = `run.sh`（攻击动作）+ `verify.sh`（预期事件核对）+ `cleanup.sh`（清理步骤）。
 所有用例对同一 monitor 实例执行，验证脚本查询 `events.db`（遥测事件）和 `baseline.db`（alerts 表），
 用打标机（mark）做增量计数，因此用例可以连跑多遍、结果互不干扰。
@@ -23,6 +23,14 @@
 | case-12 | 写 /etc/passwd | 追加一行到**测试替身** `/tmp/bg-attack-cases/passwd-copy` | alerts `dsl.cred_write_etc_passwd` ×≥1（file_path 为替身路径） | 原地覆盖恢复替身内容 |
 | case-13 | 篡改 authorized_keys | 向测试家目录 `.ssh/authorized_keys` 追加攻击者公钥 | alerts `dsl.cred_tamper_authorized_keys` ×≥1 | 原地覆盖去除追加行 |
 | case-14 | 清空 shell 历史 | `dd` 覆写测试家目录 `.bash_history`（conv=notrunc 保 inode；只有真实 write 才产生 file.write 事件） | alerts `dsl.cred_clear_shell_history` ×≥1 | 追加写恢复内容 |
+| case-15 | chmod 设置 SUID 位 | `chmod 4755` 测试替身 suid-target.conf（new_mode 渲染 &0777 掩掉高位，见 G11） | alerts `dsl.priv_suid_file_create` ×≥1 | 恢复 0644 |
+| case-16 | 非白名单 ptrace attach | python3（非调试器白名单）对 sleep 进程 PTRACE_ATTACH 后 DETACH | alerts `dsl.priv_ptrace_attach` ×≥1 | 杀掉 sleep |
+| case-17 | 加载内核模块 | `modprobe dummy`（可逆，dummy 不在白名单） | alerts `dsl.priv_kernel_module_load` ×≥1 | `modprobe -r dummy` |
+| case-18 | unshare 创建 user namespace | `unshare --user true`（CLONE_NEWUSER=268435456，ns.flags 数值判定，G10） | alerts `dsl.priv_unshare_user_namespace` ×≥1 | ns 随进程退出自销毁 |
+| case-19 | 篡改 crontab | 追加恶意条目到**测试替身** crontab-copy | alerts `dsl.persist_crontab_tamper` ×≥1 | 原地覆盖恢复替身内容 |
+| case-20 | 写 systemd unit | 追加 ExecStart 到**测试替身** unit-copy.service | alerts `dsl.persist_systemd_unit_write` ×≥1 | 原地覆盖恢复替身内容 |
+| case-21 | 篡改 ld.so.preload | 追加恶意 .so 到**测试替身** ld.so.preload-copy（绝不碰真实文件，破坏性不可逆） | alerts `dsl.persist_ld_preload_tamper` ×≥1 | 原地覆盖恢复替身内容 |
+| case-22 | 容器内执行 docker（规则版） | 与 case-04 同动作（容器挂 docker.sock 执行 docker ps），验证 DSL 规则告警 | alerts `dsl.persist_container_docker_exec` ×≥1 | 容器 --rm 自清理 |
 
 ## W6 D1 用例（07~14）设计说明
 
@@ -40,6 +48,21 @@
    10s 内 case-08 的 nc 告警被节流——监听端改用 python；(c) `truncate -s 0`/`cp /dev/null`/空输入 `tee` 只 open 不写数据，
    本探针只对真实 write(2) 产生 file.write 事件（kernel 7.0 实测），case-14 改用 `dd conv=notrunc` 覆写。
 
+## W6 D2 用例（15~22）设计说明
+
+1. **priv/ns 类用例不依赖 file 注册**（G3 修复后 priv/ns 事件已接入规则引擎），case-16/17/18 无需替身，
+   直接用真实攻击动作（python3 ptrace attach、modprobe dummy、unshare --user），全部可逆。
+2. **SUID 规则的替身与近似判定**：file.new_mode 渲染时被 `& 0777` 掩掉 setuid 高位（G11），
+   `chmod 4755` 与 `chmod 755` 在规则侧不可区分，用例固定用 4755 触发、cleanup 恢复 0644。
+3. **crontab/systemd/ld.so.preload 用替身路径**（安全约束：不碰真实系统配置；ld.so.preload 写入是
+   全系统级破坏，尤其严禁），替身路径硬编码进规则 condition 列表（G7 无路径变量，同 D1 case-12 思路），
+   对应 AC-15/19/20/21 四条 FIM 注册是为 DSL 规则供 file 事件的前置（G6）。
+4. **case-22 与 case-04 同一攻击动作、不同验证对象**：case-04 验证容器内 exec 遥测事件，
+   case-22 验证 DSL 规则告警（ancestors 容器运行时归属判定，兼容 exec container_id 缺失场景）。
+5. **节流与遮蔽**：8 条新规则命中域与 D1 规则互斥（G8 审计：file.write 按路径族互斥、
+   priv.*/ns.unshare/file.chmod 均为独占事件类型）；容器启动可能触发的模块按需加载已由
+   priv-kernel-module-load 的模块名白名单吸收（overlay/netfilter 家族）。
+
 ## 执行方式
 
 ```bash
@@ -51,8 +74,8 @@ run_all.sh 做的事：
 1. 前置检查（sudo 凭据、baseline-guard、docker）。
 2. 准备用例文件（chmod 目标、受保护基线文件；`/root/.ssh/id_rsa` 不存在时生成临时假密钥并打标）。
 3. 以 `tests/attack-cases/config.yaml` 启动 monitor（LSM 或 kprobe 自动降级），等待 "Monitoring started"。
-4. 14 个用例连跑 2 遍，每遍 run → verify → cleanup；轮间等待 12s 让告警节流（throttle=10s）过期，保证每遍告警都能落库。
-5. SIGTERM 优雅停止 monitor，输出 PASS/FAIL 汇总。退出码 0 = 28 项（14 用例 × 2 轮）全 PASS。
+4. 22 个用例连跑 2 遍，每遍 run → verify → cleanup；轮间等待 12s 让告警节流（throttle=10s）过期，保证每遍告警都能落库。
+5. SIGTERM 优雅停止 monitor，输出 PASS/FAIL 汇总。退出码 0 = 44 项（22 用例 × 2 轮）全 PASS。
 
 单独跑某个用例（monitor 已在运行时）：
 
