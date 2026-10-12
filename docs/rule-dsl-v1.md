@@ -57,7 +57,7 @@ W7 D1 起文件路径自动登记：condition 中 `file.path` 的 `=`/`in` 字�
 | `process.comm` / `process.exe` | string | comm ≤16 字符可能截断，身份匹配优先 exe |
 | `process.ancestors[].pid` / `process.ancestors[].comm` / `process.ancestors[].exe` | string/number | `[]` 表示祖先链任一元素（≤8 层，自近及远） |
 | `container.container_id` | string | 宿主机进程缺失，按空串处理 |
-| `file.path` / `file.action` / `file.new_mode` | string | file.new_mode 如 "0644" |
+| `file.path` / `file.action` / `file.new_mode` | string | file.new_mode 为 9 字符 rwx 符号串，如 `file.new_mode = rwxr-xr-x`；setuid/setgid/sticky 高位被 &0777 掩掉，无 s/t 形式（04755 与 0755 均渲染为 rwxr-xr-x，SUID 不可判定，见 G11） |
 | `file.ino` / `file.mask` / `file.new_uid` / `file.new_gid` | number | |
 | `network.sip` / `network.dip` | string | 点分文本 |
 | `network.family` / `network.protocol` / `network.sport` / `network.dport` | number | protocol: 6=TCP 17=UDP |
@@ -67,7 +67,7 @@ W7 D1 起文件路径自动登记：condition 中 `file.path` 的 `=`/`in` 字�
 | `priv.request` / `priv.name` | string | request 如 PTRACE_ATTACH；name 为模块名 |
 | `ns.source` / `ns.target` / `ns.fstype` / `ns.nstype_name` / `ns.target_ns` | string | |
 | `ns.flags` / `ns.fd` / `ns.nstype` | number | |
-| `ns.names[]` | string | 数组元素本身为字符串，如 `ns.names[] = CLONE_NEWNS` |
+| `ns.names[]` | string | 数组元素本身为字符串（去 `CLONE_` 前缀名），如 `ns.names[] = NEWNS`、`ns.names[] = NEWUSER` |
 
 规则引用了表中不存在的字段 → 加载期报错（文件名:行号 + 未知字段）。
 `event_type` 的 `=` / `in` 字面值不在上表事件类型内 → 加载期报错（未知事件类型，W7 G3 根因防御：杜绝"写了不触发也不报错"）。
@@ -121,3 +121,11 @@ list        := "(" literal ( "," literal )* ")"        # 仅作 in 的右操作�
 5. 引号字符串与转义——见 §4。
 6. 内核态求值（规则下推 BPF）——v1 全部用户态求值。
 7. 规则对告警的自动处置（block/kill）——v1 规则引擎只产告警，action 仍由既有 LSM 策略路径决定。
+
+## 8. 匹配语义：单命中 + 命中域互斥约定（显式设计，W7 D2 定稿）
+
+**单事件只报首个匹配规则**，这是 v1 的显式设计而非缺陷：
+
+- 求值顺序：规则按 `event_type` 类别分桶，桶内按加载顺序（rules 目录路径字典序：`core < examples < perf-100 < storm`，同目录按文件序/文件内序）；`Evaluate` 返回第一条命中规则即停，告警侧只发这一条。
+- 约定：**同一事件类别下，规则编写者须保证命中域互斥或接受遮蔽**——重叠规则中先加载者吃掉事件，后加载者静默无告警。编写新规则时检查同类别既有规则的 condition 重叠关系（core 内 8 条规则已按此互斥设计）。
+- 决策依据（2026-10-12 实测统计，Evaluate 临时改收集模式跑 22 用例 × 2 轮，只统计不改语义）：242 个命中事件中多命中 54 个（22.3%），但 38 个是 perf-100 压测规则的人为同构重叠（无实际意义），14 个是 core 遮蔽 examples（加载序即预期优先级），core-vs-core 重叠仅 2 事件且同属 reverse-shell 家族、告警不丢检测只丢归属粒度。多命中 >20% 但**无实际遮蔽危害**，故不改全命中；v2 如需多命中，Evaluate 返回命中列表 + 告警侧按规则去重/节流（见 gaps 文档 G8）。

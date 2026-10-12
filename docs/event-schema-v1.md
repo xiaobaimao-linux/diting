@@ -34,7 +34,7 @@ events 表索引列（不在 payload 内，但可用于规则预过滤）：`cat
 | `file.read` | open 读（内核 MAY_READ 归一化，lsm_file.bpf.c:44-46） | `file.path`(string 完整路径)、`file.ino`(u64)、`file.mask`(u64)、`file.action`(string: allow/alert/block/kill/throttle) |
 | `file.write` | open 写 | 同上 |
 | `file.access` | 其它访问 | 同上 |
-| `file.chmod` | 权限变更 | 同上 + `file.new_mode`(string，如 "0644") |
+| `file.chmod` | 权限变更 | 同上 + `file.new_mode`(string，9 字符 rwx 符号串，如 "rwxr-xr-x"；setuid/setgid/sticky 高位渲染时被 &0777 掩掉，无 s/t 表达，见 rule-engine-gaps.md G11) |
 | `file.chown` | 属主变更 | 同上 + `file.new_uid`(u64)、`file.new_gid`(u64) |
 | `file.unlink` | 删除 | 同 file.read |
 | `file.rename` | 重命名 | 同 file.read |
@@ -73,7 +73,7 @@ fork/exit 只维护进程树，不落库、不可被规则匹配。
 | event_type | 负载字段（`ns.*`） |
 |---|---|
 | `ns.mount` | `ns.source`(string)、`ns.target`(string)、`ns.fstype`(string)、`ns.flags`(u64) |
-| `ns.unshare` | `ns.flags`(u64)、`ns.names`(string 数组，如 ["CLONE_NEWNS"]) |
+| `ns.unshare` | `ns.flags`(u64)、`ns.names`(string 数组，去 `CLONE_` 前缀名，如 ["NEWNS"]、["NEWUSER"]；未知位保留数值) |
 | `ns.setns` | `ns.fd`(int)、`ns.nstype`(u32)、`ns.nstype_name`(string)、`ns.target_ns`(string) |
 
 ## 3. 富化字段

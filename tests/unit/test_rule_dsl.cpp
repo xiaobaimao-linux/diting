@@ -406,14 +406,14 @@ void test_string_ops() {
     // ns.names[] 任一元素
     std::vector<Rule> rules2;
     assert(load_single("nsnames", "nsnames.yaml",
-                       rule_yaml("NS1", "event_type = ns.unshare and ns.names[] = CLONE_NEWNS"),
+                       rule_yaml("NS1", "event_type = ns.unshare and ns.names[] = NEWNS"),
                        rules2, err));
     auto engine2 = build_engine(std::move(rules2));
     v = base_view("ns.unshare");
     v.has_ns = true;
-    v.ns_names = {"CLONE_NEWNS", "CLONE_NEWNET"};
+    v.ns_names = {"NEWNS", "NEWNET"};
     assert(engine2.Evaluate(v, m));
-    v.ns_names = {"CLONE_NEWNET"};
+    v.ns_names = {"NEWNET"};
     assert(!engine2.Evaluate(v, m));
     printf("[PASS] RDSL-015: startswith/contains/ns.names[] 断言\n");
 }

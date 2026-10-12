@@ -4,9 +4,9 @@
 #   - DSL 无位运算操作符（G12），ns.flags 组合位只能枚举常见取值；
 #   - file 事件仅覆盖 config.yaml rules: 注册的 inode（G6），测试替身路径选型同 D1（G7）。
 
-# priv-suid-file-create：chmod 设置 SUID 位（new_mode 高位被掩且渲染为 rwx 符号串，G11/G15，以 4755→rwxr-xr-x 形态近似）
+# priv-suid-file-create：chmod 设置 SUID 位（new_mode 高位被掩，渲染为 rwx 符号串（文档口径已对齐，G11 未决），以 4755→rwxr-xr-x 形态近似）
 - rule: Priv Suid File Create
-  desc: 文件被 chmod 为 rwxr-xr-x（0755 类）权限，疑似 chmod 4755/u+s 设置 SUID 位（file.new_mode 渲染 &0777 掩掉高位且输出 rwx 符号串而非文档所述八进制，04755 与 0755 均渲染为 rwxr-xr-x 不可区分，见 G11/G15；u+s 作用于 0644 文件时渲染为 rw-r--r-- 完全不可见）；/tmp/bg-attack-cases/suid-target.conf 是攻击用例的测试替身路径，命中域实际受 G6 注册 inode 限制
+  desc: 文件被 chmod 为 rwxr-xr-x（0755 类）权限，疑似 chmod 4755/u+s 设置 SUID 位（file.new_mode 渲染为 9 字符 rwx 符号串——文档口径 W7 D2 已对齐——且 &0777 掩掉高位，04755 与 0755 均渲染为 rwxr-xr-x 不可区分，见 G11；u+s 作用于 0644 文件时渲染为 rw-r--r-- 完全不可见）；/tmp/bg-attack-cases/suid-target.conf 是攻击用例的测试替身路径，命中域实际受 G6 注册 inode 限制
   condition: event_type = file.chmod and file.new_mode = rwxr-xr-x and not process.exe in (/usr/bin/dpkg, /bin/dpkg, /usr/bin/dpkg-deb, /usr/bin/rpm, /usr/bin/install, /bin/install)
   output: "疑似 SUID 位设置 (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid file=%file.path mode=%file.new_mode container=%container.container_id)"
   priority: high
@@ -36,7 +36,7 @@
 
 # priv-unshare-userns：unshare 创建 user namespace（ns.flags 数值判定，G10/G12）
 - rule: Priv Unshare User Namespace
-  desc: 进程调用 unshare 创建 user namespace（CLONE_NEWUSER=0x10000000），容器逃逸与本地提权（如 CVE-2024-1086 类内核 exploit）的典型前置；用 ns.flags 数值判定（ns.names 元素无 CLONE_ 前缀与文档不符，见 G10；无位运算，仅枚举纯 NEWUSER 与 NEWUSER|NEWNS 两种常见组合，见 G12）
+  desc: 进程调用 unshare 创建 user namespace（CLONE_NEWUSER=0x10000000），容器逃逸与本地提权（如 CVE-2024-1086 类内核 exploit）的典型前置；用 ns.flags 数值判定（ns.names 元素为去 CLONE_ 前缀名如 NEWUSER，文档口径 W7 D2 已对齐；无位运算，仅枚举纯 NEWUSER 与 NEWUSER|NEWNS 两种常见组合，见 G12）
   condition: event_type = ns.unshare and ns.flags in (268435456, 268566528)
   output: "创建 user namespace (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid ns_flags=%ns.flags container=%container.container_id)"
   priority: high

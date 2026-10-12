@@ -47,21 +47,27 @@
 
 ## G8 单事件只报首个匹配规则（无多命中）
 
+- **决策记录（2026-10-12，W7 D2）：不改，单命中定为显式设计**，约定已写入 `docs/rule-dsl-v1.md` §8（单命中 + 规则命中域互斥约定）。
+  - 统计数据：`RuleEngine::Evaluate` 临时改收集模式（只统计不改语义，跑完即还原）跑 22 用例 × 2 轮——242 个命中事件中多命中 54 个（22.3%，hits=2×14 / hits=3×2 / hits=8×26 / hits=10×12）。构成：38 个为 perf-100 压测规则的人为同构重叠（benchmark 规则本就写成一个路径族全覆盖，无实际意义）；14 个为 core 遮蔽 examples（目录加载序 core < examples 即预期优先级）；core-vs-core 仅 2 事件（Exec Reverse Shell Under Interpreter 与 Exec Webspawner Shell 同族重叠），告警不丢检测结论、只丢规则归属粒度。
+  - 结论：多命中率 >20% 但无实际遮蔽危害，"改全命中"的告警量翻倍收益不抵成本；若未来出现真实的 core 规则互遮需求，再按 v2 方向实施。
 - 现状：`RuleEngine::Evaluate` 返回单个 MatchResult（src/detect/rule_engine.cpp:621），按桶内加载顺序（目录路径排序，core < examples < perf-100 < storm）取第一条命中规则即停；`eval_rules_on_exec_event` 只发送这一条告警（src/baseline/monitor.cpp:1394-1397）。
-- 影响：条件重叠的规则互相遮蔽——先加载者吃掉事件，后加载者静默无告警（W6 D1 实测：规则 1 的祖先列表含 node 时，`exec-webspawner-shell` 全量被遮蔽 0 告警）。
+- 原影响：条件重叠的规则互相遮蔽——先加载者吃掉事件，后加载者静默无告警（W6 D1 实测：规则 1 的祖先列表含 node 时，`exec-webspawner-shell` 全量被遮蔽 0 告警）。
 - 本次应对：core 内 8 条规则的命中域做了互斥设计（规则 1 去掉 node，webshell 场景让给规则 4）；编写重叠规则时必须检查加载顺序与遮蔽关系。
 - v2 方向：Evaluate 返回全部命中列表，告警侧按规则去重/节流。
 
 ## G9 file.write 只对真实 write(2) 字节产生（kernel 7.0 实测）
-- 现状：只 open(O_TRUNC) 不写数据（`cp /dev/null F`、空输入 `tee F`）、或纯 `truncate(2)` 系统调用（`truncate -s 0`，走 path_truncate 钩子未插桩）都不产生 file.write 事件；有实际写入才上报。
+
+- **决策记录（2026-10-12，W7 D2）：三方案评估后选降级，排 W10 后**。
+  - A（验证现有钩子是否已覆盖，可能零代码）：实测 kernel 7.0.0-38——对已注册 inode 的目标文件分别执行 `truncate -s 0`、`: > F`（O_TRUNC 不写数据）、`cp /dev/null F`，三者在 events.db **均零 file 事件**（对照组 `echo >> F` 正常产生 file.write，mask=2）。`lsm/file_permission` 在 open(O_TRUNC) 与 truncate(2) 路径均不触发，A 不可行。
+  - B（open flags O_TRUNC 检测）：不存在 open 事件，事件结构无 flags 字段（bpf/event.h），需新增钩子 + 新字段，成本等同内核侧改动；且"open 写意图"语义比"真实写字节"宽得多（编辑器/shell 打开即报），噪声风险大，不取。
+  - C（新增 `lsm/inode_setattr` 钩子过滤 ATTR_SIZE）：唯一能精确覆盖 truncate/ftruncate/O_TRUNC 三路径的点（三者都走 notify_change 的 ATTR_SIZE），估约 30 行 BPF + 用户态事件映射；属内核侧改动，按 W7 D2 约束记降级，排 W10 后评估。
+- 现状：只 open(O_TRUNC) 不写数据（`cp /dev/null F`、空输入 `tee F`）、或纯 `truncate(2)` 系统调用（`truncate -s 0`）都不产生 file.write 事件；有实际写入才上报。
 - 影响：`cred-clear-history` 对"打开即截断但不写"的清空手法不可见；攻击用例不能用 truncate/cp-null 触发（case-14 改用 `dd conv=notrunc`）。
-- v2 方向：补 `lsm/path_truncate` 钩子，或在 open 路径也上报 O_TRUNC。
 
 ## G10 ns.names[] 元素命名与 schema 文档不一致
 
-- 现状：schema（docs/event-schema-v1.md §2）与 DSL 文档示例写作 `["CLONE_NEWNS"]`，实际渲染（src/baseline/monitor_privilege.cpp `decode_ns_flags`）输出去 `CLONE_` 前缀的名字（`NEWNS` / `NEWUSER` / `NEWNET` …）。写 `ns.names[] = CLONE_NEWUSER` 永不触发（但 G3 修复后此类失配已能被触发验证发现，不再静默）。
-- 影响：ns 类规则用 `ns.names[]` 须写无前缀名（`ns.names[] = NEWUSER`），或改用数值字段 `ns.flags`（CLONE_NEWUSER=268435456）。
-- v2 方向：W7 统一处理——渲染输出补 `CLONE_` 前缀对齐 schema（涉及落库 JSON 历史数据迁移，不现场改）。
+- **已修复（2026-10-12，W7 D2）**：选型"保留渲染现状（去 `CLONE_` 前缀），文档拉齐"——改动面最小，不破坏已验证的 ns.flags 数值路径与落库历史数据。三处同步：`docs/event-schema-v1.md` §2.5、`docs/rule-dsl-v1.md` §3 示例改为无前缀口径（NEWNS/NEWUSER）；`tests/unit/test_rule_dsl.cpp` RDSL-015 期望同步。回归：case-18（priv-unshare-userns）通过。
+- 原现状：schema（docs/event-schema-v1.md §2）与 DSL 文档示例写作 `["CLONE_NEWNS"]`，实际渲染（src/baseline/monitor_privilege.cpp `decode_ns_flags`）输出去 `CLONE_` 前缀的名字（`NEWNS` / `NEWUSER` / `NEWNET` …）。写 `ns.names[] = CLONE_NEWUSER` 永不触发。
 
 ## G11 file.new_mode 渲染掩掉 setuid/setgid/sticky 高位
 
@@ -92,9 +98,9 @@
 
 ## G15 file.new_mode 渲染为 rwx 符号串，与 schema 文档的八进制口径不符
 
-- 现状：schema（docs/event-schema-v1.md §2.1）与 DSL 文档（docs/rule-dsl-v1.md §3）写 `file.new_mode 如 "0644"`，实际渲染（src/common/utils.cpp `mode_to_string`）输出 9 字符 rwx 符号串（如 "rwxr-xr-x"）。写 `file.new_mode = 0755` 永不触发（W6 D2 case-15 首轮实测踩出）。
-- 影响：mode 类条件必须用 rwx 字面量（`file.new_mode = rwxr-xr-x`）；与 G11 掩码叠加后，SUID 判定可用字面量只剩"4755/0755→rwxr-xr-x"一种近似。
-- v2 方向：W7 统一为 4 位八进制字符串对齐文档（同 G10 一类渲染口径漂移，涉及历史数据迁移，不现场改）。
+- **已修复（2026-10-12，W7 D2，改文档不改代码）**：选型理由——rwx 符号串可读性更好，且 W6 D6 起规则（priv-suid-file-create 等）与单测（test_utils UTL-003~005、TESTCASES.md）均已按 rwx 字面量编写验证，改代码为八进制需连带改规则与历史数据；改文档零风险。三处同步：`docs/event-schema-v1.md` §2.1、`docs/rule-dsl-v1.md` §3 改为 rwx 串口径，并补注 SUID 高位被 &0777 掩掉、无 rws 形式（G11 未决，SUID 判定仍不可表达）；单测本就按 rwx 期望，无需改。回归：case-15（priv-suid-file-create）通过。
+- 原现状：schema（docs/event-schema-v1.md §2.1）与 DSL 文档（docs/rule-dsl-v1.md §3）写 `file.new_mode 如 "0644"`，实际渲染（src/common/utils.cpp `mode_to_string`）输出 9 字符 rwx 符号串（如 "rwxr-xr-x"）。写 `file.new_mode = 0755` 永不触发（W6 D2 case-15 首轮实测踩出）。
+- 原影响：mode 类条件必须用 rwx 字面量（`file.new_mode = rwxr-xr-x`）；与 G11 掩码叠加后，SUID 判定可用字面量只剩"4755/0755→rwxr-xr-x"一种近似。
 
 ## G16 多 monitor 实例并存时告警互相串扰（运行态，非 DSL 表达力）
 
