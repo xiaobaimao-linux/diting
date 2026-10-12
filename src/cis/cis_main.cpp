@@ -29,7 +29,7 @@ using cis::Verdict;
 using json = nlohmann::json;
 
 const std::string kDefaultDb = "/var/lib/baseline-guard/baseline.db";
-const std::string kDefaultDefs = "rules/cis/cis-baseline-v1.yaml";
+const std::string kDefaultDefs = "cis/cis-baseline-v1.yaml";
 
 struct CommonOptions {
     std::string db_path = kDefaultDb;

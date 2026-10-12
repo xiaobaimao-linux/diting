@@ -42,6 +42,10 @@
 
 规则文件放置于 `rules/` 目录（引擎配置 `rules_dir`），`*.yaml`/`*.yml` 全部加载；任一文件解析失败：严格模式整体拒绝加载（保留旧快照），宽松模式跳过该文件（供 CLI check）。
 
+W7 D1 起 monitor 启动路径 fail-fast：任一规则文件加载失败、或 enabled 但加载 0 条规则，直接报错拒绝启动（不再降级空引擎）；热加载失败仍保留旧快照。
+
+W7 D1 起文件路径自动登记：condition 中 `file.path` 的 `=`/`in` 字面量路径在加载/热更新时自动登记进内核 inode map（无需先跑 snapshot 基线或 config `rules:` 注册）；规则移除时反登记（config/基线同引用的不误删）。不可登记路径（不存在 / 非绝对 / 含通配符）加载期逐条 warn，该规则降级为"文件条件不生效"，不阻断其余规则。`startswith`/`contains` 前缀语义不在自动登记范围（见 rule-engine-gaps.md G6）。
+
 ## 3. 字段表
 
 条件表达式与 output 模板中可引用的字段 = `docs/event-schema-v1.md` 全表，常用节选：

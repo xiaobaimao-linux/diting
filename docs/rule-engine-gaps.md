@@ -34,7 +34,8 @@
 
 ## G6 file 事件仅覆盖 config monitor.path 注册的 inode
 
-- 现状：BPF 侧 `monitor_actions` map 查不到 inode 直接 return（bpf/lsm_file.bpf.c:37-40 等）；用户态只注册 config `rules:` 与 baseline 库内文件（src/baseline/monitor.cpp:774-861）。**DSL 规则单独写 `file.path = X` 而 config 未注册 X 时永远无事件**。文件删除重建后 inode 变化，需 SIGHUP 热加载重新注册。
+- **已部分修复（2026-10-12，W7 D1）**：DSL 规则 condition 中 `file.path` 的 `=`/`in` 字面量路径在加载/热加载时自动登记进内核 monitor_actions map（`src/detect/rule_loader.cpp` `ExtractFilePathRefs` + `src/baseline/monitor.cpp` `dsl_sync_registrations`），未基线文件规则开箱即触发；引用计数反登记，config/基线覆盖的 inode 不误删。残余边界：startswith/contains 前缀语义仍依赖既有登记（下述 v2 方向）；与既有条目共享 inode 时沿用其 events_mask。
+- 原现状：BPF 侧 `monitor_actions` map 查不到 inode 直接 return（bpf/lsm_file.bpf.c:37-40 等）；用户态只注册 config `rules:` 与 baseline 库内文件（src/baseline/monitor.cpp:774-861）。**DSL 规则单独写 `file.path = X` 而 config 未注册 X 时永远无事件**。文件删除重建后 inode 变化，需 SIGHUP 热加载重新注册。
 - 影响：`cred-tamper-authorized-keys`、`cred-clear-history` 面向"任意用户家目录"的路径无法一规则全覆盖，只能逐文件注册。
 - 退化方案：测试配置显式注册测试路径；生产部署按资产清单批量注册关键用户的 history/authorized_keys。
 - v2 方向：支持目录前缀注册（path prefix → BPF map 前缀匹配或用户态过滤全量事件）。
@@ -97,6 +98,16 @@
 
 ## G16 多 monitor 实例并存时告警互相串扰（运行态，非 DSL 表达力）
 
-- 现状：多个 baseline-guard monitor 并存时各自加载规则快照、各自维护节流状态、消费同一批内核事件并落同一系统告警库（/var/lib/baseline-guard/baseline.db）。残留旧实例（规则集不同）会与新实例对同一事件产出不同 rule_id 的告警（W6 D2 实测：残留实例无 persist-container-docker-exec，命中落到示例规则 dsl.docker_cli_executed_inside_container，case-22 出现"同一动作有时命中 core 有时命中 examples"的假象）。
+- **已修复（2026-10-12，W7 D1）**：`do_monitor` 入口加 flock 单实例锁（`src/common/instance_lock.cpp`，锁文件 `/var/run/baseline-guard-monitor.lock`），探针加载前获取；第二实例报错退出（提示含持锁 pid + 锁文件路径，exit 1）；正常退出与 kill -9 均由内核自动释放。
+- 原现状：多个 baseline-guard monitor 并存时各自加载规则快照、各自维护节流状态、消费同一批内核事件并落同一系统告警库（/var/lib/baseline-guard/baseline.db）。残留旧实例（规则集不同）会与新实例对同一事件产出不同 rule_id 的告警（W6 D2 实测：残留实例无 persist-container-docker-exec，命中落到示例规则 dsl.docker_cli_executed_inside_container，case-22 出现"同一动作有时命中 core 有时命中 examples"的假象）。
 - 本次应对：run_all.sh 启动前清理残留 monitor 进程；文档记录该现象以免误判为规则/引擎不确定性。
 - v2 方向：monitor 启动时检测同 config 的存活实例（pidfile/flock 互斥）。
+
+## G17 规则加载失败静默降级为空引擎（W6 D3 事故，加载器可靠性）
+
+- **已修复（2026-10-12，W7 D1）**：启动路径 fail-fast——任一规则文件加载/编译失败、或 enabled 但加载 0 条规则，`do_monitor` 直接报错拒绝启动（err 含文件名+行号+原因）；CIS 定义文件移出 `rules/` 递归范围（`rules/cis/` → `cis/`，cis_main 默认路径同步）。热加载路径语义不变（失败保留旧快照）。回归纪律见 `CONTRIBUTING.md`。
+- 原现状：`rules/cis/cis-baseline-v1.yaml`（CIS 检查项定义，非 DSL 规则）被 rules_dir 递归加载解析失败，`LoadRulesDir` 整体 false 后 monitor 仅 warn 继续运行（rule_loader.cpp:136 → monitor.cpp:1815），DSL 告警空窗 2 天。
+
+## G18 规则内文件路径无法登记时加载期无提示（加载警告缺口）
+
+- **已修复（2026-10-12，W7 D1）**：随 G6 登记流程落地——路径不存在 / 非绝对路径 / 含通配符三类逐条 warn（格式：规则ID + 路径 + 原因 + "该文件条件不生效"降级说明），map 写失败（容量满）同款 warn；不阻断其余规则加载。语义边界：规则文件本身解析失败 = G17 fail-fast；规则内路径登记失败 = 本项 warn 降级。

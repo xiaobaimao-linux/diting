@@ -154,4 +154,56 @@ bool LoadRulesDir(const std::string &dir, std::vector<Rule> &out, std::string &e
     return true;
 }
 
+namespace {
+
+void extract_refs_from_node(const CondNode *node, const std::string &rule_name,
+                            std::vector<FilePathRef> &out) {
+    if (node == nullptr)
+        return;
+    switch (node->kind) {
+    case CondNode::Kind::And:
+    case CondNode::Kind::Or:
+        for (const auto &c : node->children)
+            extract_refs_from_node(c.get(), rule_name, out);
+        return;
+    case CondNode::Kind::Not:
+        extract_refs_from_node(node->child.get(), rule_name, out);
+        return;
+    case CondNode::Kind::Compare: {
+        const Operand *lit = nullptr;
+        if (node->lhs.kind == Operand::Kind::Field && node->lhs.field == FieldId::file_path)
+            lit = &node->rhs;
+        else if (node->rhs.kind == Operand::Kind::Field && node->rhs.field == FieldId::file_path)
+            lit = &node->lhs;
+        else
+            return;
+        if (node->op == CmpOp::Eq && lit->kind == Operand::Kind::Str) {
+            out.push_back({rule_name, lit->str});
+        } else if (node->op == CmpOp::In && lit->kind == Operand::Kind::List) {
+            for (const auto &elem : lit->list)
+                if (elem.kind == Operand::Kind::Str)
+                    out.push_back({rule_name, elem.str});
+        }
+        return;
+    }
+    }
+}
+
+} // namespace
+
+std::vector<FilePathRef> ExtractFilePathRefs(const std::vector<Rule> &rules) {
+    std::vector<FilePathRef> out;
+    for (const auto &rule : rules)
+        extract_refs_from_node(rule.condition.get(), rule.name, out);
+    return out;
+}
+
+PathRefClass ClassifyPathRef(const std::string &path) {
+    if (path.find_first_of("*?[]") != std::string::npos)
+        return PathRefClass::Glob;
+    if (path.empty() || path.front() != '/')
+        return PathRefClass::NotAbsolute;
+    return PathRefClass::Ok;
+}
+
 } // namespace detect

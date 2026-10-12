@@ -17,4 +17,23 @@ namespace detect {
 // （含 output 模板插值字段）、规则名全局查重。
 bool LoadRulesDir(const std::string &dir, std::vector<Rule> &out, std::string &err);
 
+// ── DSL 文件规则路径提取（W7 D1 缺口一：自动登记内核 inode map）─────
+// 一条 file.path 字面量引用：来源规则名 + 路径文本。
+struct FilePathRef {
+    std::string rule_name;
+    std::string path;
+};
+
+// 提取全部规则 condition 中 file.path 的 = / in 字符串字面量，作为内核
+// monitor_actions map 的登记候选。仅精确路径可登记；startswith/contains
+// 是前缀/子串语义而非具体路径，不在候选内（见 docs/rule-engine-gaps.md G6）。
+// != 语义为"除该路径外"，无法登记，同样跳过。
+std::vector<FilePathRef> ExtractFilePathRefs(const std::vector<Rule> &rules);
+
+// 登记候选路径的静态分类（任务 4 兜底警告用）：
+// Ok 可登记（交调用方 stat）；Glob 含通配符 * ? [ ]（v1 不支持，明确拒绝）；
+// NotAbsolute 非绝对路径。
+enum class PathRefClass { Ok, Glob, NotAbsolute };
+PathRefClass ClassifyPathRef(const std::string &path);
+
 } // namespace detect

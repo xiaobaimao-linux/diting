@@ -45,6 +45,7 @@ tests/test_event_bus
 /tests/test_process_tree
 /tests/test_rule_dsl
 /tests/test_whitelist
+/tests/test_instance_lock
 /tests/integration/helpers/wl_parent
 /tests/integration/helpers/wl_writer
 /tests/perf/bench_lat

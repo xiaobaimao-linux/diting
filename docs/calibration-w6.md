@@ -15,7 +15,7 @@
 | 6 | 攻击用例 case-15~22 配套落地 | ✓ | commit 54a0b46 |
 | 7 | run_all.sh 挂 22 用例两轮 + 残留 monitor 清理守卫（G16 防御） | ✓ | 同上 |
 | 8 | 误报专项 D2（apt/systemctl/gcc/sudo 操作集） | ✓ | docs/fpr-w6d2.md，新 8 条零命中，收紧 2 条 |
-| 9 | CIS 40 项定义转录 yaml | ✓ | rules/cis/cis-baseline-v1.yaml |
+| 9 | CIS 40 项定义转录 yaml | ✓ | cis/cis-baseline-v1.yaml（W7 D1 起移出 rules/） |
 | 10 | CIS 三态判定引擎 + cis check/report（前 20 项） | ✓ | commit b066850 |
 | 11 | CIS 后 20 项验证，40/40 对账 | ✓ | commit 85a4dc4 |
 | 12 | cis report HTML/JSON 导出 | ✓ | 同上，docs/cis-report-format-v1.md |
@@ -30,7 +30,8 @@
 ### 偏差归因
 
 1. **D5 回归 22.7%（项 14）——加载器回归，非规则问题。** W6 D3 新增的
-   `rules/cis/cis-baseline-v1.yaml` 顶层不是规则列表，`rules_dir: "rules"` 递归加载时该文件失败
+   `rules/cis/cis-baseline-v1.yaml`（W7 D1 已移至 `cis/cis-baseline-v1.yaml`）
+   顶层不是规则列表，`rules_dir: "rules"` 递归加载时该文件失败
    导致 `LoadRulesDir` 整体返回 false、DSL 引擎降级为空（src/detect/rule_loader.cpp:136、
    src/baseline/monitor.cpp:1815）。case-07~22 共 16 个 DSL 用例两轮全 FAIL 均此一根因；
    底层事件源、内置 FIM 规则均正常。**过程教训：D3/D4 只跑单测与冒烟、未重跑攻击用例，

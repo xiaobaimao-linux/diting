@@ -38,5 +38,5 @@ G16 单实例锁；DSL 文件类规则 inode 注册决策（自动注册 or 加�
 
 - 误报专项：`docs/fpr-w6d1.md`、`docs/fpr-w6d2.md`
 - 引擎缺口：`docs/rule-engine-gaps.md`（G1–G16）
-- CIS：`rules/cis/cis-baseline-v1.yaml`、`docs/cis-report-format-v1.md`
+- CIS：`cis/cis-baseline-v1.yaml`（W7 D1 起移出 rules/）、`docs/cis-report-format-v1.md`
 - 回归：`tests/attack-cases/run_all.sh`，D5 日志 `/tmp/w6d5-run_all.log`

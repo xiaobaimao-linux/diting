@@ -90,6 +90,7 @@ MAIN_SRCS = src/main.cpp \
             src/common/commonfun.cpp \
             src/common/utils.cpp \
             src/common/container.cpp \
+            src/common/instance_lock.cpp \
             src/detect/condition_parser.cpp \
             src/detect/rule_loader.cpp \
             src/detect/rule_engine.cpp \

@@ -17,6 +17,7 @@
 #include "enricher.hpp"
 #include "rule_engine.hpp"
 #include "rule_loader.hpp"
+#include "instance_lock.hpp"
 #include "net_event.h"
 #include "priv_event.h"
 #include "proc_event.h"
@@ -166,23 +167,50 @@ static std::shared_ptr<const detect::RuleEngine> g_rule_engine =
 static std::shared_mutex g_file_rules_mtx;
 static WhitelistMatcher g_whitelist_matcher;
 
+// ── DSL 文件规则 inode 登记（W7 D1 缺口一修复）────────────────────
+// DSL condition 中 file.path 的 = / in 字面量路径，加载时登记进内核
+// monitor_actions map（否则内核不产生该文件事件，规则永不触发）。
+// 引用计数：多条 DSL 规则引用同一路径按 ino 合并计数；反登记仅当计数归零
+// 且 config 规则 / 基线快照均不覆盖该 inode 时才从 map 删除（来源保护）。
+// map_owner=false 表示登记时该 inode 已被 config/基线覆盖，map 条目非本模块写入。
+struct DslInoReg { int refs = 0; bool map_owner = false; };
+static std::unordered_map<unsigned long, DslInoReg> g_dsl_ino_refs;
+// ino → 全路径（file_event_path 解析 DSL 专属 inode 的全路径；内核事件只带 basename）
+static std::unordered_map<unsigned long, std::string> g_dsl_ino_path;
+// build_rule_engine 最近一次成功加载提取的登记候选（启动/热加载共用交接）
+static std::vector<detect::FilePathRef> g_dsl_pending_refs;
+// monitor_actions map fd（common_monitor_init 赋值；SIGHUP 热加载反登记用）
+static int g_fd_actions = -1;
+
 // 消费线程取引擎快照（shared_ptr 拷贝，锁内一次原子增减）
 static std::shared_ptr<const detect::RuleEngine> rule_engine_snapshot() {
     std::shared_lock<std::shared_mutex> lk(g_file_rules_mtx);
     return g_rule_engine;
 }
 
-// 启动/热加载共用：严格加载 rules_dir 并编译引擎；失败返回 nullptr（调用方保留旧快照）
+// 启动/热加载共用：严格加载 rules_dir 并编译引擎；失败返回 nullptr。
+// 调用方语义：启动路径 fail-fast 拒绝启动；热加载路径保留旧快照。
+// W7 D1 起 enabled 且加载结果为 0 条规则同样视为失败——消灭"加载了 0 条
+// 规则还正常跑"的空引擎路径（W6 D3/D4 静默空窗 2 天事故的同类变体）。
 static std::shared_ptr<const detect::RuleEngine> build_rule_engine(const RuleEngineConfig& cfg) {
-    if (!cfg.enabled)
+    if (!cfg.enabled) {
+        g_dsl_pending_refs.clear();
         return std::make_shared<const detect::RuleEngine>();
+    }
     std::vector<detect::Rule> rules;
     std::string err;
     if (!detect::LoadRulesDir(cfg.rules_dir, rules, err)) {
         spdlog::error("[rule_engine] 规则加载失败: {}", err);
         return nullptr;
     }
+    if (rules.empty()) {
+        spdlog::error("[rule_engine] 规则加载失败: {} 下加载到 0 条规则"
+                      "（rule_engine.enabled=true 时不允许空引擎；确认 rules_dir 或置 enabled: false）",
+                      cfg.rules_dir);
+        return nullptr;
+    }
     auto engine = std::make_shared<detect::RuleEngine>();
+    g_dsl_pending_refs = detect::ExtractFilePathRefs(rules); // 登记候选随成功加载交接
     if (!engine->Build(std::move(rules), err)) {
         spdlog::error("[rule_engine] 规则编译失败: {}", err);
         return nullptr;
@@ -192,6 +220,93 @@ static std::shared_ptr<const detect::RuleEngine> build_rule_engine(const RuleEng
 
 // 基线实时监控映射：inode -> CheckEntry（仅当 --db 模式下非空；启动时构建，热加载不变更）
 std::unordered_map<unsigned long, CheckEntry> g_inode_to_baseline;
+
+// DSL 文件路径登记/反登记同步（启动与热加载共用；W7 D1 任务 3/4）。
+// 新集合 - 旧集合：新 ino 写入 map（已被 config/基线覆盖则只计数不改写）；
+// 旧集合 - 新集合：计数归零且 config/基线均不覆盖时从 map 删除。
+// 路径不可登记（含通配符 / 非绝对 / 不存在 / map 写失败）逐条 warn 降级——
+// 该规则"加载成功但对应文件条件不生效"，不阻断其余规则（与任务 1 的
+// 文件级解析失败 fail-fast 是两层语义，不混用）。
+static void dsl_sync_registrations(int fd_actions, const std::vector<detect::FilePathRef> &refs) {
+    if (fd_actions < 0)
+        return;
+    std::unordered_map<unsigned long, std::pair<std::string, int>> wanted; // ino → (path, refs)
+    for (const auto &ref : refs) {
+        switch (detect::ClassifyPathRef(ref.path)) {
+        case detect::PathRefClass::Glob:
+            spdlog::warn("[rule_engine] 规则 {} 路径 {}: 含通配符（DSL v1 不支持 glob），"
+                         "该文件条件不生效（规则已加载，其余条件不受影响）", ref.rule_name, ref.path);
+            continue;
+        case detect::PathRefClass::NotAbsolute:
+            spdlog::warn("[rule_engine] 规则 {} 路径 {}: 非绝对路径，"
+                         "该文件条件不生效（规则已加载，其余条件不受影响）", ref.rule_name, ref.path);
+            continue;
+        case detect::PathRefClass::Ok:
+            break;
+        }
+        struct stat st;
+        if (lstat(ref.path.c_str(), &st) != 0 || st.st_ino == 0) {
+            spdlog::warn("[rule_engine] 规则 {} 路径 {}: 路径不存在（stat 失败: {}），"
+                         "该文件条件不生效（规则已加载，其余条件不受影响）",
+                         ref.rule_name, ref.path, strerror(errno));
+            continue;
+        }
+        auto &w = wanted[st.st_ino];
+        w.first = ref.path;
+        w.second++;
+    }
+
+    std::unique_lock<std::shared_mutex> lk(g_file_rules_mtx);
+    // 新增/更新登记
+    for (const auto &[ino, w] : wanted) {
+        auto it = g_dsl_ino_refs.find(ino);
+        if (it != g_dsl_ino_refs.end()) {
+            it->second.refs = w.second;
+            g_dsl_ino_path[ino] = w.first;
+            continue;
+        }
+        // 已被 config 规则或基线覆盖：事件已在流，沿用既有 map 条目的
+        // events_mask（已知边界：既有条目掩码较窄时，其余事件类型本规则收不到），
+        // 仅补路径映射与计数
+        bool covered = g_file_rules->inode_to_rules.count(ino) > 0 ||
+                       g_inode_to_baseline.count(ino) > 0;
+        bool owner = false;
+        if (!covered) {
+            struct monitor_rule_set set {};
+            struct monitor_rule v {};
+            v.action = ACTION_ALERT;
+            v.events_mask = EVENT_READ | EVENT_WRITE |
+                            EVENT_MASK_BIT(EVENT_CHMOD) | EVENT_MASK_BIT(EVENT_CHOWN) |
+                            EVENT_MASK_BIT(EVENT_UNLINK) | EVENT_MASK_BIT(EVENT_RENAME) |
+                            EVENT_MASK_BIT(EVENT_MMAP);
+            v.severity = SEVERITY_LOW; // 占位：告警级别由 DSL 规则 priority 决定
+            set.rules[set.count++] = v;
+            if (bpf_map_update_elem(fd_actions, &ino, &set, BPF_ANY) != 0) {
+                spdlog::warn("[rule_engine] 路径 {} (ino {}): 内核 map 写入失败: {}"
+                             "（容量满或 bpf 错误），该文件条件不生效",
+                             w.first, ino, strerror(errno));
+                continue;
+            }
+            owner = true;
+        }
+        g_dsl_ino_refs[ino] = DslInoReg{w.second, owner};
+        g_dsl_ino_path[ino] = w.first;
+    }
+    // 反登记：计数归零且 config/基线均不覆盖才删除（同一路径多源引用不误删）
+    for (auto it = g_dsl_ino_refs.begin(); it != g_dsl_ino_refs.end();) {
+        if (wanted.count(it->first) > 0) {
+            ++it;
+            continue;
+        }
+        bool covered = g_file_rules->inode_to_rules.count(it->first) > 0 ||
+                       g_inode_to_baseline.count(it->first) > 0;
+        if (it->second.map_owner && !covered)
+            bpf_map_delete_elem(fd_actions, &it->first);
+        g_dsl_ino_path.erase(it->first);
+        it = g_dsl_ino_refs.erase(it);
+    }
+    spdlog::info("[rule_engine] DSL 文件路径登记: {} inodes registered", g_dsl_ino_refs.size());
+}
 
 // ── SIGHUP 热加载 ─────────────────────────────────────────────
 // handler 只置标志；主事件循环每轮检查发现置位即重解析配置：
@@ -225,6 +340,9 @@ static void reload_monitor_config(const std::string& config_path, AlertManager& 
         g_rule_engine = std::move(new_engine);
     }
     g_whitelist_matcher.ClearCache();
+    // DSL 文件规则 inode 登记同步（W7 D1）：按新规则集增删登记；
+    // 覆盖判定用刚替换的新 config 规则表 + 基线（热加载不变更）快照
+    dsl_sync_registrations(g_fd_actions, g_dsl_pending_refs);
     // notify 外发配置随热加载生效（min_level / webhook_url / silence_minutes）
     alert_mgr.UpdateNotifyConfig(new_config.notify);
     spdlog::info("config reloaded ({} rules)", new_config.rules.size());
@@ -770,6 +888,7 @@ static int common_monitor_init(int fd_actions,
                                bool skip_boot_check,
                                AlertManager& alert_mgr,
                                BaselineDB*& baseline_db_out) {
+    g_fd_actions = fd_actions; // SIGHUP 热加载 DSL 登记同步用（map fd 进程内不变）
     // 写入 monitor_actions：同 inode 的多条规则合并为一个 monitor_rule_set
     // 一次写入（R13 缺陷修复：原先逐条 BPF_ANY 更新同 key，后写覆盖先写）。
     // 超过 MAX_RULES_PER_INO 时保留 action/severity 最强者并 warn 留痕。
@@ -892,6 +1011,10 @@ static int common_monitor_init(int fd_actions,
             ++rules_written;
     }
     spdlog::info("[rules] monitor_actions: {} inodes written", rules_written);
+
+    // DSL 文件规则路径登记（W7 D1）：在 config/基线下刷之后执行，
+    // 覆盖判定以 g_file_rules / g_inode_to_baseline 为准
+    dsl_sync_registrations(fd_actions, g_dsl_pending_refs);
     return 0;
 }
 
@@ -1051,7 +1174,7 @@ static const char* file_event_kind(const struct event& e) {
 }
 
 // 文件事件路径解析：优先基线完整路径（--db 模式，不跟随 symlink），
-// 其次 YAML 规则路径；均无退回事件自带文件名（仅 basename）。
+// 其次 YAML 规则路径，再次 DSL 登记路径（W7 D1）；均无退回事件自带文件名（仅 basename）。
 static std::string file_event_path(const struct event& e) {
     auto it_bl = g_inode_to_baseline.find(e.ino);
     if (it_bl != g_inode_to_baseline.end())
@@ -1060,6 +1183,9 @@ static std::string file_event_path(const struct event& e) {
     auto it_path = g_file_rules->inode_to_path.find(e.ino);
     if (it_path != g_file_rules->inode_to_path.end())
         return it_path->second;
+    auto it_dsl = g_dsl_ino_path.find(e.ino);
+    if (it_dsl != g_dsl_ino_path.end())
+        return it_dsl->second;
     return std::string(e.path);
 }
 
@@ -1801,22 +1927,7 @@ static int do_monitor_ringbuf(const Config& config, AlertManager &alert_mgr,
     if (!proc_skel)
         spdlog::warn("[telemetry.process] proc_watch 启动失败，降级为无进程树富化");
 
-    // ── DSL 规则引擎启动加载（W4）：失败降级为空引擎，监控继续 ──
-    if (config.rule_engine.enabled) {
-        auto engine = build_rule_engine(config.rule_engine);
-        if (engine != nullptr) {
-            {
-                std::unique_lock<std::shared_mutex> lk(g_file_rules_mtx);
-                g_rule_engine = std::move(engine);
-            }
-            spdlog::info("[rule_engine] loaded {} DSL rules from {}",
-                         rule_engine_snapshot()->rule_count(), config.rule_engine.rules_dir);
-        } else {
-            spdlog::warn("[rule_engine] 启动加载失败，降级为空引擎（不产生 DSL 告警）");
-        }
-    } else {
-        spdlog::info("[rule_engine] disabled by config");
-    }
+    // ── DSL 规则引擎：do_monitor 入口已 fail-fast 加载并装入 g_rule_engine ──
 
     TelemetryRuntime rt;
     rt.bus       = &bus;
@@ -2177,11 +2288,53 @@ int do_monitor(const Config& config, AlertManager &alert_mgr,
                const std::string& config_path,
                const std::string& baseline_db_path, bool skip_boot_check) {
 
+    // ── 单实例锁（W7 D1 / G16）：探针加载、ring buffer 创建之前获取 ──
+    // flock 方案：锁由进程级 fd 持有，正常退出与 kill -9 均由内核自动释放，
+    // 无 stale pidfile 问题。双开会同时消费 ring buffer 并写同一告警库（G16 串扰）。
+    static const char* kMonitorLockPath = "/var/run/baseline-guard-monitor.lock";
+    {
+        int holder_pid = -1;
+        std::string lock_err;
+        if (!common::AcquireInstanceLock(kMonitorLockPath, holder_pid, lock_err)) {
+            if (holder_pid > 0) {
+                spdlog::error("[instance_lock] 已有 monitor 实例运行（pid {}），拒绝启动；锁文件 {}",
+                              holder_pid, kMonitorLockPath);
+            } else {
+                spdlog::error("[instance_lock] 获取单实例锁失败: {}（锁文件 {}）",
+                              lock_err.empty() ? "锁已被持有" : lock_err, kMonitorLockPath);
+            }
+            return 1;
+        }
+    }
+
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
     // SIGHUP 热加载（M0-2）：handler 只置标志，各路径主循环每轮检查后原子替换快照；
     // 此处注册覆盖 main.cpp 的旧式 g_reload handler（进程不重启，pid 不变）
     signal(SIGHUP, monitor_sighup_handler);
+
+    // ── DSL 规则引擎启动加载（W4）；W7 D1 起 fail-fast ─────────────
+    // 策略：任一规则文件加载/编译失败、或 enabled 但加载 0 条规则，均拒绝启动。
+    // 根因修复：W6 D3 起 rules/cis 定义文件被当规则解析失败，旧代码静默降级为
+    // 空引擎继续运行，DSL 告警空窗 2 天无任何报错——"加载 0 条规则还正常跑"
+    // 这条路径必须不存在。探针加载前完成校验，失败无清理负担。
+    // （热加载路径语义不同：加载失败保留旧快照继续运行，见 reload_monitor_config。）
+    if (config.rule_engine.enabled) {
+        auto engine = build_rule_engine(config.rule_engine);
+        if (engine == nullptr) {
+            spdlog::error("[rule_engine] 规则加载失败，拒绝启动"
+                          "（修复规则文件，或置 rule_engine.enabled: false 后重启）");
+            return 1;
+        }
+        {
+            std::unique_lock<std::shared_mutex> lk(g_file_rules_mtx);
+            g_rule_engine = std::move(engine);
+        }
+        spdlog::info("[rule_engine] loaded {} DSL rules from {}",
+                     rule_engine_snapshot()->rule_count(), config.rule_engine.rules_dir);
+    } else {
+        spdlog::info("[rule_engine] disabled by config");
+    }
 
     auto kv = get_kernel_version();
     spdlog::info("[kernel_detect] detected kernel {}.{}", kv.major, kv.minor);

@@ -1,6 +1,7 @@
 // 单元测试：规则 DSL 解析器 + 匹配引擎（W4 D3/D4）
 // 编译: make test_rule_dsl（见 tests/Makefile）
 
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
 #include <fstream>
@@ -550,6 +551,56 @@ void test_unknown_event_type() {
     printf("[PASS] RDSL-019: 未知事件类型加载期报错（= / in 均覆盖）\n");
 }
 
+// ====== RDSL-020: file.path 字面量提取（= / in 登记候选；startswith/!= 不提取）======
+void test_extract_file_path_refs() {
+    const std::string dir = make_dir("fpref");
+    write_file(dir + "/a.yaml",
+               rule_yaml("R-Eq", "event_type = file.write and file.path = /etc/secure.cfg") +
+               rule_yaml("R-In", "file.path in (/etc/a, /etc/b)") +
+               rule_yaml("R-Prefix", "file.path startswith /etc/cron") +
+               rule_yaml("R-Ne", "file.path != /etc/skip") +
+               rule_yaml("R-Nested", "event_type = file.write and (file.path = /x or not file.path = /y)"));
+    std::vector<Rule> rules;
+    std::string err;
+    assert(detect::LoadRulesDir(dir, rules, err));
+    auto refs = detect::ExtractFilePathRefs(rules);
+    // R-Eq×1 + R-In×2 + R-Nested×2 = 5；R-Prefix / R-Ne 不在候选内
+    assert(refs.size() == 5);
+    std::vector<std::string> paths;
+    for (const auto &r : refs) {
+        assert(!r.rule_name.empty());
+        paths.push_back(r.path);
+    }
+    std::sort(paths.begin(), paths.end());
+    assert((paths == std::vector<std::string>{"/etc/a", "/etc/b", "/etc/secure.cfg", "/x", "/y"}));
+    printf("[PASS] RDSL-020: file.path = / in 字面量提取（startswith/!= 正确排除）\n");
+}
+
+// ====== RDSL-021: 登记候选路径三类分类（通配符 / 非绝对 / 可登记）======
+void test_classify_path_ref() {
+    using detect::ClassifyPathRef;
+    using detect::PathRefClass;
+    assert(ClassifyPathRef("/etc/*.conf") == PathRefClass::Glob);
+    assert(ClassifyPathRef("/etc/?.conf") == PathRefClass::Glob);
+    assert(ClassifyPathRef("/etc/[ab].conf") == PathRefClass::Glob);
+    assert(ClassifyPathRef("tmp/rel.txt") == PathRefClass::NotAbsolute);
+    assert(ClassifyPathRef("") == PathRefClass::NotAbsolute);
+    assert(ClassifyPathRef("/etc/shadow") == PathRefClass::Ok);
+    printf("[PASS] RDSL-021: 路径分类 glob/非绝对/可登记\n");
+}
+
+// ====== RDSL-022: 任一文件失败整体失败，err 含文件名+原因（W7 D1 fail-fast 源头）======
+void test_bad_file_fails_whole_load() {
+    const std::string dir = make_dir("badfile");
+    write_file(dir + "/good.yaml", rule_yaml("Good", "event_type = file.read"));
+    write_file(dir + "/broken.yaml", "- rule: [unclosed\n");
+    std::vector<Rule> rules;
+    std::string err;
+    assert(!detect::LoadRulesDir(dir, rules, err));
+    assert(err.find("broken.yaml") != std::string::npos);
+    printf("[PASS] RDSL-022: 坏规则文件整体失败，err 含文件名+原因（%s）\n", err.c_str());
+}
+
 int main() {
     test_examples_parse();
     test_examples_ast();
@@ -571,6 +622,9 @@ int main() {
     test_et_prefilter_semantics();
     test_priv_eval();
     test_unknown_event_type();
+    test_extract_file_path_refs();
+    test_classify_path_ref();
+    test_bad_file_fails_whole_load();
     printf("[PASS] ALL test_rule_dsl done\n");
     return 0;
 }
