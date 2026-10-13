@@ -1,5 +1,6 @@
 #include "notify_dispatcher.hpp"
 #include "notify_router.hpp"
+#include "syslog_notifier.hpp"
 #include "webhook_notifier.hpp"
 #include <spdlog/spdlog.h>
 
@@ -21,6 +22,9 @@ NotifyDispatcher::~NotifyDispatcher() {
 void NotifyDispatcher::UpdateConfig(const NotifyConfig& cfg) {
     std::lock_guard<std::mutex> lk(mu_);
     const bool url_changed = (cfg.webhook_url != cfg_.webhook_url);
+    const bool syslog_changed = (cfg.syslog.enabled != cfg_.syslog.enabled ||
+                                 cfg.syslog.host != cfg_.syslog.host ||
+                                 cfg.syslog.port != cfg_.syslog.port);
     const bool agg_turned_off = (cfg_.aggregation_window_minutes > 0 &&
                                  cfg.aggregation_window_minutes <= 0);
     cfg_ = cfg;
@@ -29,6 +33,14 @@ void NotifyDispatcher::UpdateConfig(const NotifyConfig& cfg) {
         notifier_.reset();
         if (!cfg_.webhook_url.empty()) {
             notifier_ = std::make_shared<WebhookNotifier>(cfg_.webhook_url);
+        }
+    }
+    if (syslog_changed) {
+        // syslog 渠道对象随开关/host/port 整体换新（同 webhook 快照口径）
+        syslog_notifier_.reset();
+        if (cfg_.syslog.enabled) {
+            syslog_notifier_ = std::make_shared<SyslogNotifier>(cfg_.syslog.host,
+                                                                cfg_.syslog.port);
         }
     }
     // 聚合被关闭时把残余窗口全部结算，避免合并计数永远等不到摘要
@@ -130,14 +142,20 @@ std::chrono::steady_clock::time_point NotifyDispatcher::NextAggFlushDeadlineLock
 void NotifyDispatcher::Dispatch(const AlertEvent& evt) {
     std::lock_guard<std::mutex> lk(mu_);
 
-    if (!cfg_.enabled || !notifier_) {
+    if (!cfg_.enabled || (!notifier_ && !syslog_notifier_)) {
         return;
     }
 
-    // 级别路由：低于 min_level 仅落库，不外发（路由判定见 notify_router.hpp 单测）
-    if (!notify::ShouldRouteByLevel(evt.severity, cfg_.min_level)) {
-        spdlog::debug("[notify] routed out by min_level={}: rule={} severity={}",
-                      cfg_.min_level, evt.rule_id, evt.severity);
+    // 级别路由：低于全部启用通道的 min_level 仅落库，不外发
+    // （任一通道通过即进入静默/聚合/入队管线；最终投递由工作线程按各通道
+    // 自己的 min_level 决定。路由判定见 notify_router.hpp 单测）
+    const bool pass_webhook = notifier_ &&
+        notify::ShouldRouteByLevel(evt.severity, cfg_.min_level);
+    const bool pass_syslog = syslog_notifier_ &&
+        notify::ShouldRouteByLevel(evt.severity, cfg_.syslog.min_level);
+    if (!pass_webhook && !pass_syslog) {
+        spdlog::debug("[notify] routed out by min_level={}/syslog={}: rule={} severity={}",
+                      cfg_.min_level, cfg_.syslog.min_level, evt.rule_id, evt.severity);
         return;
     }
 
@@ -200,7 +218,7 @@ NotifyStats NotifyDispatcher::Stats() const {
 void NotifyDispatcher::WorkerMain() {
     while (true) {
         AlertEvent evt;
-        std::shared_ptr<INotifier> notifier;
+        ChannelSnapshot channels[2];
         {
             std::unique_lock<std::mutex> lk(mu_);
             // 先结算到期聚合窗口（可能向队列补摘要），再等队列/下一个到期点
@@ -219,28 +237,48 @@ void NotifyDispatcher::WorkerMain() {
             }
             evt = std::move(queue_.front());
             queue_.pop();
-            notifier = notifier_;
+            channels[0] = {notifier_, cfg_.min_level};
+            channels[1] = {syslog_notifier_, cfg_.syslog.min_level};
         }
 
-        // 锁外发送：首试 + 最多 2 次重试，重试间隔 200ms；耗尽计 failed
-        bool ok = false;
-        for (int attempt = 0; attempt <= kMaxRetries; ++attempt) {
-            if (attempt > 0) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(kRetryBackoffMs));
+        // 锁外逐通道发送：每通道按自己的 min_level 决定投递，首试 + 最多 2 次
+        // 重试（间隔 200ms），耗尽计 failed；通道间独立 try/catch 兜底，
+        // 一个通道抛异常不影响另一个通道与本线程存活。
+        // sent/failed 按"通道 × 告警"发送尝试计（口径见头文件注释）
+        for (const ChannelSnapshot& ch : channels) {
+            if (!ch.notifier) {
+                continue;
             }
-            if (notifier->Send(evt)) {
-                ok = true;
-                break;
+            if (!notify::ShouldRouteByLevel(evt.severity, ch.min_level)) {
+                continue;   // 入队由任一通道通过触发，投递只看本通道 min_level
             }
-        }
-        if (ok) {
-            ++sent_;
-            spdlog::info("[notify] webhook sent: rule={} severity={} file={}",
-                         evt.rule_id, evt.severity, evt.file_path);
-        } else {
-            ++failed_;
-            spdlog::warn("[notify] webhook failed after {} retries, give up: rule={}",
-                         kMaxRetries, evt.rule_id);
+            bool ok = false;
+            try {
+                for (int attempt = 0; attempt <= kMaxRetries; ++attempt) {
+                    if (attempt > 0) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(kRetryBackoffMs));
+                    }
+                    if (ch.notifier->Send(evt)) {
+                        ok = true;
+                        break;
+                    }
+                }
+            } catch (const std::exception& ex) {
+                spdlog::error("[notify] {} send threw exception: {}", ch.notifier->Name(),
+                              ex.what());
+            } catch (...) {
+                spdlog::error("[notify] {} send threw unknown exception",
+                              ch.notifier->Name());
+            }
+            if (ok) {
+                ++sent_;
+                spdlog::info("[notify] {} sent: rule={} severity={} file={}",
+                             ch.notifier->Name(), evt.rule_id, evt.severity, evt.file_path);
+            } else {
+                ++failed_;
+                spdlog::warn("[notify] {} failed after {} retries, give up: rule={}",
+                             ch.notifier->Name(), kMaxRetries, evt.rule_id);
+            }
         }
     }
 }

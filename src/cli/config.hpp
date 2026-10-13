@@ -24,7 +24,15 @@ struct DbConfig {
     int retention_max_records = 10000; // 告警最大记录数：默认1万条，0=不限制
 };
 
-// 告警外发配置（独立节点 notify:，W5 D4；webhook 为首个渠道）
+// syslog 渠道配置（notify.syslog 子段）：与 webhook 双通道并存，各收各的
+struct SyslogNotifyConfig {
+    bool enabled = false;              // syslog 渠道开关，默认关闭
+    std::string host;                  // 空 = 本地 /dev/log；非空 = UDP host:port
+    int port = 514;                    // UDP 端口（host 非空时有效）
+    std::string min_level = "high";    // 本渠道外发最低级别（与全局 min_level 同口径）
+};
+
+// 告警外发配置（独立节点 notify:，W5 D4；webhook 为首个渠道，syslog 第二渠道）
 struct NotifyConfig {
     bool enabled = false;              // 外发总开关，默认关闭（行为与旧版本一致）
     std::string webhook_url;           // webhook POST 地址，空=不外发
@@ -33,6 +41,7 @@ struct NotifyConfig {
     int aggregation_window_minutes = 5;  // 聚合窗口：同 (rule_id, 对象) 窗口内重复告警合并，
                                          // 窗末补发一条 occurrences=N 摘要；0=关闭。
                                          // 摘要仍受静默窗口约束，建议聚合窗口 >= 静默窗口
+    SyslogNotifyConfig syslog;           // syslog 渠道（notify.syslog 子段，默认关闭）
 };
 
 // 遥测配置（独立节点 telemetry:）
@@ -60,7 +69,7 @@ struct Config {
     std::vector<Rule> rules;
     AlertConfig alert;   //
     DbConfig db;         // 数据库保留策略配置
-    NotifyConfig notify; // 告警外发（webhook 渠道，SIGHUP 热加载）
+    NotifyConfig notify; // 告警外发（webhook + syslog 渠道，SIGHUP 热加载）
     TelemetryConfig telemetry;  // 遥测开关
     RuleEngineConfig rule_engine;  // DSL 规则引擎
 };

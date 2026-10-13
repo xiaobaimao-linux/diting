@@ -15,9 +15,11 @@
 
 // 外发计数（对账口径，自进程启动累计）：sent 成功 / failed 重试耗尽 /
 // suppressed 静默窗口内被抑制 / dropped 队列满丢弃 / merged 聚合窗口内被合并。
-// 每条进入 Dispatch 且通过级别路由的告警恰好计一次：sent/failed/dropped/suppressed
-// 之一（独立外发尝试），或 merged（并入窗口）；聚合摘要为合成外发尝试，同样计
-// sent/failed/dropped/suppressed。
+// 计数粒度（双通道口径，syslog 渠道接入后）：
+//   sent/failed 按"通道 × 告警"发送尝试计——一条告警投给 webhook 和 syslog
+//   两个通道，各成功则 sent+2，一成功一失败则 sent+1 failed+1；
+//   suppressed/dropped/merged 仍按告警计（进入静默/聚合/入队管线时恰好计一次，
+//   聚合摘要为合成告警，同样计一次）。
 struct NotifyStats {
     uint64_t sent = 0;
     uint64_t failed = 0;
@@ -35,8 +37,11 @@ struct AggWindow {
 };
 
 // 异步外发调度器（W5 D4）：Dispatch 由消费线程调用，只做级别路由 +
-// 静默判定 + 入队（不等待、不做 IO）；工作线程串行发送（单次 ≤3s，
-// 失败重试 ≤2 次后计 failed）。任何情况下不影响告警落库。
+// 静默判定 + 入队（不等待、不做 IO）；工作线程串行发送（webhook 单次 ≤3s，
+// syslog ≤50ms，失败重试 ≤2 次后计 failed）。任何情况下不影响告警落库。
+// 双通道（syslog 接入后）：webhook 与 syslog 可同时启用、各收各的。
+// 路由按"任一通道 min_level 通过即进入既有静默/聚合/入队管线"；发送时
+// 工作线程按各通道自己的 min_level 决定实际投递，单通道异常不影响另一通道。
 // 配置经 UpdateConfig 热加载（SIGHUP 路径），锁内整份替换。
 class NotifyDispatcher {
 public:
@@ -67,9 +72,16 @@ private:
     static constexpr int kMaxRetries = 2;          // 失败后最多重试 2 次
     static constexpr int kRetryBackoffMs = 200;
 
+    // 工作线程发送时使用的通道快照（锁内取，锁外用）
+    struct ChannelSnapshot {
+        std::shared_ptr<INotifier> notifier;
+        std::string min_level;
+    };
+
     mutable std::mutex mu_;
     NotifyConfig cfg_;                             // 锁内整份替换
     std::shared_ptr<INotifier> notifier_;          // webhook 渠道（url 变更时整体换新）
+    std::shared_ptr<INotifier> syslog_notifier_;   // syslog 渠道（host/port/开关变更时整体换新）
     // 静默窗口：key = rule_id + "|" + 对象 key → 上次外发时间点
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> last_sent_;
     // 聚合窗口（W5 D5）：key 与静默同款 → 窗口状态。窗内重复计 merged 并入窗口，

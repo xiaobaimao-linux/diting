@@ -66,6 +66,7 @@ MAIN_SRCS = src/main.cpp \
             src/alerts/ai_boost.cpp \
             src/alerts/alert_manager.cpp \
             src/alerts/webhook_notifier.cpp \
+            src/alerts/syslog_notifier.cpp \
             src/alerts/notify_dispatcher.cpp \
             src/asset/asset_collect.cpp \
             src/asset/asset_list.cpp \

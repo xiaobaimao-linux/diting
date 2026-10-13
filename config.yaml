@@ -42,14 +42,21 @@ alert:
     secret: ""
   throttle: 300
 
-# ── 告警外发（webhook 渠道，W5 D4；SIGHUP 热加载生效）──
+# ── 告警外发（webhook + syslog 双渠道，SIGHUP 热加载生效）──
 notify:
   enabled: false             # 外发总开关
   webhook_url: ""            # HTTP POST JSON 目标，如 http://127.0.0.1:9000/alert
-  min_level: "high"          # 外发最低级别：critical/high 外发，medium/low 仅落库
+  min_level: "high"          # webhook 渠道外发最低级别：critical/high 外发，medium/low 仅落库
   silence_minutes: 10        # 同 (rule_id, 对象) 静默窗口，窗口内重复仅落库；0=关闭
   aggregation_window_minutes: 5  # 同 (rule_id, 对象) 聚合窗口：窗内重复合并，窗末补发
                              # occurrences=N 摘要（仅外发侧，落库逐条不变）；0=关闭
+  # syslog 渠道（RFC 5424，与 webhook 并存、各收各的）：host 空 = 本地 /dev/log，
+  # host 非空 = UDP host:port；min_level 为本渠道独立最低级别
+  # syslog:
+  #   enabled: false
+  #   host: ""               # 如 "192.168.1.10"；留空写本地 /dev/log
+  #   port: 514
+  #   min_level: "high"
 
 # ── 资产采集（asset collect 周期任务，与事件链路无关）──
 asset:

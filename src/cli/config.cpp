@@ -133,6 +133,9 @@ static void parseAlertNode(const YAML::Node &alertNode, AlertConfig &alert) {
     }
 }
 
+// notify.syslog 子段解析（定义在 parseNotifyNode 之后）
+static void parseNotifySyslogNode(const YAML::Node &node, SyslogNotifyConfig &syslog);
+
 // notify: 节点解析（告警外发，W5 D4；lenient：字段类型错告警并取默认值）
 static void parseNotifyNode(const YAML::Node &notifyNode, NotifyConfig &notify) {
     if (notifyNode["enabled"]) {
@@ -183,10 +186,60 @@ static void parseNotifyNode(const YAML::Node &notifyNode, NotifyConfig &notify) 
             spdlog::warn("无法解析 notify.aggregation_window_minutes 值: {}", e.what());
         }
     }
-    spdlog::info("[notify] enabled={} min_level={} silence={}min agg_window={}min url={}",
+    // notify.syslog: 子段（syslog 渠道，lenient 风格同父段）
+    if (notifyNode["syslog"]) {
+        parseNotifySyslogNode(notifyNode["syslog"], notify.syslog);
+    }
+    spdlog::info("[notify] enabled={} min_level={} silence={}min agg_window={}min url={} syslog={}",
                  notify.enabled, notify.min_level, notify.silence_minutes,
                  notify.aggregation_window_minutes,
-                 notify.webhook_url.empty() ? "(empty)" : "configured");
+                 notify.webhook_url.empty() ? "(empty)" : "configured",
+                 notify.syslog.enabled
+                     ? (notify.syslog.host.empty()
+                            ? "/dev/log"
+                            : notify.syslog.host + ":" + std::to_string(notify.syslog.port))
+                     : "off");
+}
+
+// notify.syslog: 子段解析（lenient：字段类型错告警并取默认值）
+static void parseNotifySyslogNode(const YAML::Node &node, SyslogNotifyConfig &syslog) {
+    if (node["enabled"]) {
+        try {
+            syslog.enabled = node["enabled"].as<bool>();
+        } catch (const YAML::Exception &e) {
+            spdlog::warn("无法解析 notify.syslog.enabled 值: {}", e.what());
+        }
+    }
+    if (node["host"]) {
+        try {
+            syslog.host = node["host"].as<string>();
+        } catch (const YAML::Exception &e) {
+            spdlog::warn("无法解析 notify.syslog.host 值: {}", e.what());
+        }
+    }
+    if (node["port"]) {
+        try {
+            syslog.port = node["port"].as<int>();
+            if (syslog.port <= 0 || syslog.port > 65535) {
+                spdlog::warn("notify.syslog.port 非法值 {}，按默认 514 处理", syslog.port);
+                syslog.port = 514;
+            }
+        } catch (const YAML::Exception &e) {
+            spdlog::warn("无法解析 notify.syslog.port 值: {}", e.what());
+        }
+    }
+    if (node["min_level"]) {
+        try {
+            const std::string level = node["min_level"].as<string>();
+            if (alert::SeverityIsValid(level)) {
+                syslog.min_level = level;
+            } else {
+                spdlog::warn("notify.syslog.min_level 非法值 '{}'，保留默认 high", level);
+            }
+        } catch (const YAML::Exception &e) {
+            spdlog::warn("无法解析 notify.syslog.min_level 值: {}", e.what());
+        }
+    }
 }
 
 static void parseDbNode(const YAML::Node &dbNode, DbConfig &db) {

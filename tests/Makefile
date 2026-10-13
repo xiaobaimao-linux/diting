@@ -17,7 +17,7 @@ CONFIG_SRCS = $(SRC_DIR)/cli/config.cpp $(SRC_DIR)/common/utils.cpp
 all: unit integration
 
 # ====== 单元测试 ======
-unit: test_config test_utils test_watermark test_event_bus test_process_tree test_whitelist test_rule_dsl test_gpu_collector test_model_files test_ai_workload test_notify_router test_cis_judge test_ai_boost test_instance_lock
+unit: test_config test_utils test_watermark test_event_bus test_process_tree test_whitelist test_rule_dsl test_gpu_collector test_model_files test_ai_workload test_notify_router test_syslog_severity test_cis_judge test_ai_boost test_instance_lock
 	@echo "=== Running unit tests ==="
 	./test_config
 	./test_utils
@@ -30,6 +30,7 @@ unit: test_config test_utils test_watermark test_event_bus test_process_tree tes
 	./test_model_files
 	./test_ai_workload
 	./test_notify_router
+	./test_syslog_severity
 	./test_cis_judge
 	./test_ai_boost
 	./test_instance_lock
@@ -69,6 +70,9 @@ test_ai_workload: unit/test_ai_workload.cpp $(SRC_DIR)/asset/asset_collector.cpp
 test_notify_router: unit/test_notify_router.cpp $(SRC_DIR)/alerts/notify_router.hpp $(SRC_DIR)/alerts/alert_event.hpp
 	$(CXX) $(CXXFLAGS) -o $@ $<
 
+test_syslog_severity: unit/test_syslog_severity.cpp $(SRC_DIR)/alerts/syslog_notifier.hpp
+	$(CXX) $(CXXFLAGS) -o $@ $<
+
 test_cis_judge: unit/test_cis_judge.cpp $(SRC_DIR)/cis/cis_judge.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $< $(SRC_DIR)/cis/cis_judge.cpp
 
@@ -91,5 +95,5 @@ e2e:
 	bash e2e/test_workflow.sh
 
 clean:
-	rm -f test_config test_utils test_watermark test_event_bus test_rule_dsl test_process_tree test_whitelist test_gpu_collector test_model_files test_ai_workload test_notify_router test_cis_judge test_ai_boost test_instance_lock
+	rm -f test_config test_utils test_watermark test_event_bus test_rule_dsl test_process_tree test_whitelist test_gpu_collector test_model_files test_ai_workload test_notify_router test_syslog_severity test_cis_judge test_ai_boost test_instance_lock
 	rm -rf /tmp/baseline_test_* /tmp/baseline_monitor_test_* /tmp/baseline_rdsl_* /tmp/baseline_guard_modeltest_*
