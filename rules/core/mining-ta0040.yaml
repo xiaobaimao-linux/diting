@@ -1,0 +1,48 @@
+# 挖矿类核心规则（TA0040 Impact / T1496 Resource Hijacking）——W7 D3
+# 引擎约束（详见 docs/rule-engine-gaps.md）：
+#   - 无进程 cmdline/argv（G1/G19）：矿机的 --donate-level、stratum+tcp:// 命令行特征不可表达，
+#     mining-binary-exec 只覆盖 exe 路径含矿机名的场景；
+#   - 无 CIDR/网段比较（G20）：白名单回环/内网只能逐 IP 字面量，mining-pool-port-connect
+#     选型"端口匹配不强制外网 IP"（选型理由见该规则 fpr_note 与用例 case-23 注释）；
+#   - 单事件判定（G5）：三因子关联（高 CPU + 矿池连接 + 陌生二进制）超出 DSL v1，
+#     设计记 docs/mining-correlation-design.md，排 v2。
+
+# mining-pool-port-connect：outbound 连接常见 stratum 矿池端口
+- rule: Mining Pool Port Connect
+  desc: 发起指向常见 stratum 矿池端口（3333/4444/5555/7777/14444）的 outbound TCP 连接，疑似挖矿外联；选型"端口匹配不强制外网 IP"——DSL v1 无测试模式，且回环白名单会同时放行"本地代理/端口转发跳板到矿池"的真实攻击路径（矿池连接经本机 127.0.0.1 转发时 dip 即回环）；这组端口在合法服务中极少用作目的端口，端口本身即强信号
+  condition: event_type = network.connect and network.dport in (3333, 4444, 5555, 7777, 14444)
+  output: "疑似矿池端口外联 (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid dip=%network.dip dport=%network.dport container=%container.container_id)"
+  priority: high
+  attack: [T1496, TA0040]
+  fpr_note: 已知合法占用：5555 是 adb over network 默认端口（安卓开发机高频），7777 偶见于游戏/集群服务，3333 有少量自建服务——确认后可按 dip 逐 IP 字面量追加豁免（G20：无 CIDR，只能 `and not network.dip in (ip1, ip2)` 枚举）；无"强制外网 IP"判定是刻意选型（见 desc），由此带来的回环误报按 dip 白名单处理
+  response: 确认发起进程身份与祖先链；提取 dip 反查是否已知矿池（威胁情报/域名解析历史）；确认挖矿后查同主机的矿机二进制落地点、持久化项与高 CPU 进程，清理后溯源入侵入口
+
+# mining-pool-dns：DNS 查询知名矿池域名特征
+- rule: Mining Pool Dns Query
+  desc: DNS 查询含知名矿池域名关键字（minergate/nanopool/supportxmr 等），疑似矿池解析；刻意不收裸 "pool." 关键字——pool.ntp.org 是全网高频 NTP 查询，contains 语义（子串匹配，非前缀）下必误报，故只保留矿池厂商/币种特征字
+  condition: event_type = network.dns and (dns.domain contains minergate or dns.domain contains nanopool or dns.domain contains supportxmr or dns.domain contains minexmr or dns.domain contains xmrpool or dns.domain contains f2pool or dns.domain contains antpool or dns.domain contains monerohash or dns.domain contains cryptonight or dns.domain contains hashrate)
+  output: "疑似矿池域名解析 (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid domain=%dns.domain container=%container.container_id)"
+  priority: high
+  attack: [T1496, TA0040]
+  fpr_note: 关键字均按"合法业务几乎不出现"挑选，正常 dig/上网解析不命中；新矿池域名层出不穷，本名单按威胁情报滚动补充；企业内网若有同名测试域（如内部 mirror）会命中，按域名收窄
+  response: 反查该域名归属（威胁情报）；定位发起解析的进程（exe + 祖先链），检查是否为已知矿机或下载器；确认后阻断域名/端口，排查矿机落地与持久化
+
+# mining-binary-exec：执行已知挖矿二进制名（cmdline 特征受 G1/G19 限制不可表达）
+- rule: Mining Binary Exec
+  desc: 执行路径含已知挖矿程序名的二进制（xmrig/kdevtmpfsi/kinsing/watchbog/minerd/cpuminer 等，covers 任意落盘位置）；--donate-level、stratum+tcp:// 等命令行特征因 exec 无 cmdline 采集不可表达（G1/G19），随机改名矿机不命中，靠 mining-shm-exec / mining-pool-port-connect 互补
+  condition: event_type = process.exec and (process.exe contains xmrig or process.exe contains kdevtmpfsi or process.exe contains kinsing or process.exe contains watchbog or process.exe contains minerd or process.exe contains cpuminer)
+  output: "疑似挖矿程序执行 (rule=%rule.name exe=%process.exe pid=%process.pid ppid=%process.ppid uid=%process.uid container=%container.container_id)"
+  priority: critical
+  attack: [T1496, TA0040]
+  fpr_note: 安全研究/测试环境编译运行 xmrig（如路径含 xmrig-build）会命中，按固定工作目录追加 `and not process.exe startswith <目录>` 豁免；与 exec-suspicious-tmp-binary 存在理论重叠（/tmp 下落盘的 xmrig）：单命中语义（G8）下 exec 桶内 exec-ta0002 先加载，归到 tmp 规则告警——检测不丢只丢归属粒度，与 W6 reverse-shell 家族同例，接受
+  response: 提取二进制哈希与落地来源（祖先链下载者）；查矿池外联（network.connect 大端口）与配置文件（钱包地址、矿池地址）；清理进程与文件，排查持久化（crontab/systemd/ld.so.preload）并溯源入口
+
+# mining-shm-exec：从 /dev/shm 启动可执行文件（shm 专属，与 tmp 规则命中域互斥）
+- rule: Mining Shm Exec
+  desc: 从 /dev/shm 执行无扩展名文件——内存文件系统落盘即跑是挖矿/无文件攻击典型手法（kinsing 家族惯用 /dev/shm）；与 exec-suspicious-tmp-binary 命中域互斥：该规则已收窄为只管 /tmp/、/var/tmp/，/dev/shm 由本规则独占（单命中 G8 下的显式划分）；隐藏文件（/dev/shm/.x 含 .）受 G4 限制漏报
+  condition: event_type = process.exec and process.exe startswith /dev/shm/ and not process.exe contains .
+  output: "从 /dev/shm 执行可疑文件 (rule=%rule.name exe=%process.exe pid=%process.pid ppid=%process.ppid uid=%process.uid container=%container.container_id)"
+  priority: critical
+  attack: [T1496, T1036, TA0040]
+  fpr_note: /dev/shm 正常几乎无可执行文件落地（少数 JIT/崩溃处理工具除外），命中即高危；"无扩展名"为 not contains . 近似（G4：隐藏文件豁免）；容器内 shm 执行宿主机路径渲染注意核对 container_id
+  response: 立即提取该文件哈希并保留内存证据（/proc/<pid>/maps、exe 链接）；查写入者祖先链与入口（web 服务/容器逃逸）；清理后挂载 shm 为 noexec 加固

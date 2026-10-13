@@ -1,0 +1,49 @@
+# 防御规避类核心规则（TA0005 Defense Evasion / T1070 Indicator Removal）——W7 D3
+# 引擎约束（详见 docs/rule-engine-gaps.md）：
+#   - 无进程 cmdline/argv（G1/G19）：systemctl 的 stop/disable 与子命令目标、chattr 的 +i/-i、
+#     pkill 的目标进程名均不可表达——规则 2/3/4 全部退化为 exe 命中 + 祖先链收窄，
+#     噪声权衡逐条写入 fpr_note，v2 cmdline 草案见 docs/rule-engine-gaps.md G19；
+#   - file.write 只对真实 write(2) 字节产生（G9）：truncate/打开即截断的清空手法不可见，
+#     规则 1 不覆盖该路径，用例用追加写触发；
+#   - 单命中 + 命中域互斥（G8，docs/rule-dsl-v1.md §8）：本文件 4 条与 exec/file 桶内既有
+#     规则无重叠（逐条自查见各规则 desc）。
+
+# evasion-clear-security-log：写/删安全日志文件（白名单日志系统自身 + logrotate）
+- rule: Evasion Clear Security Log
+  desc: 写入或删除认证/登录日志（/var/log/auth.log、/var/log/secure、wtmp、btmp），疑似清除入侵痕迹；/tmp/bg-attack-cases/auth.log-copy、wtmp-copy 是攻击用例替身路径（G7 无路径变量，硬编码），生产可从列表移除；truncate 清空不可见（G9），本规则只覆盖真实写入与删除
+  condition: event_type in (file.write, file.unlink) and file.path in (/var/log/auth.log, /var/log/secure, /var/log/wtmp, /var/log/btmp, /tmp/bg-attack-cases/auth.log-copy, /tmp/bg-attack-cases/wtmp-copy) and not process.comm in (rsyslogd, syslogd, logrotate, systemd-journal) and not process.comm startswith rs:main and not process.comm startswith rs:action and not process.exe in (/usr/sbin/rsyslogd, /usr/sbin/syslogd, /usr/sbin/logrotate, /usr/sbin/sshd, /usr/bin/login, /bin/login, /usr/bin/su, /bin/su)
+  output: "安全日志被写入/删除 (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid file=%file.path container=%container.container_id)"
+  priority: critical
+  attack: [T1070.002, TA0005]
+  fpr_note: 日志系统自身的追加写已豁免——rsyslogd/syslogd/systemd-journal（auth.log/secure 的正常写入者）与 sshd/login/su（wtmp/btmp 的正常写入者）；rsyslog 的写盘工作线程 comm 是 "rs:main Q:Reg"（含空格、exe 富化为空），裸串与 in 列表无法表达含空格的 comm，且 `rs:` 后跟空格会撞 YAML 语法（plain scalar 中冒号+空格非法），故按 `rs:main`/`rs:action` 前缀豁免（W7 D3 实测：不加则每条 auth.log 日志都误报，且在 10s 节流窗口内挤掉真实告警）；logrotate 按 comm 豁免（先例：W6 F2 apt-key/F1 cron 的 comm 豁免——comm 可伪造，是刻意的噪声/检出权衡，轮换由其 cron 子进程执行、exe 可能富化为空故不能只按 exe）；编辑器人工清理历史日志属双义行为，按变更工单核对；宿主机 logrotate 配置错误导致日志被异常改写也会命中
+  response: 先比对日志尾部是否被截断/时段缺失，从备份或远程 syslog 恢复被清时段；沿写入进程祖先链溯源；出现本条告警通常意味着入侵已发生，按入侵响应流程处置（隔离、取证、排查持久化）
+
+# evasion-stop-audit-service：systemctl/service 被执行（G19 退化：动作与目标不可判定）
+- rule: Evasion Stop Audit Service
+  desc: systemctl/service 被执行，疑似停止 auditd/rsyslog 等审计服务使后续操作不可见；G19 退化说明：exec 无 cmdline，stop/disable 动作与 auditd 目标不可判定，本规则退化为"systemctl/service 被执行即报"——覆盖面等价于全部 systemctl 调用，噪声高、priority 降为 medium，v2 草案（cmdline 可用后）：cmdline contains (stop, disable) and cmdline contains (auditd, rsyslog)；sudo 前缀场景不受影响（exe 富化取最终执行的 systemctl 本体，与祖先链 sudo 无关）
+  condition: event_type = process.exec and process.exe in (/usr/bin/systemctl, /bin/systemctl, /usr/sbin/service)
+  output: "systemctl/service 执行（审计服务关停嫌疑，G19 退化规则） (rule=%rule.name exe=%process.exe pid=%process.pid ppid=%process.ppid uid=%process.uid container=%container.container_id)"
+  priority: medium
+  attack: [T1562.001, T1070, TA0005]
+  fpr_note: 管理员一切 systemctl 操作（status/restart/enable）都命中——这是 G19 下"宁噪声勿漏报"的刻意取舍；不能用祖先链豁免 systemd——pid 1 恒在 8 层祖先链内，豁免即全量静默（W7 D3 首轮回归实测）；包管理 postinst（dpkg 调 systemctl）会命中，可按祖先链 apt/dpkg 人工研判或临时关闭本规则；检出价值在于"入侵时间窗内的 systemctl stop"能进入告警时间线供关联研判
+  response: 结合告警时间线看该 systemctl 前后是否有日志清空（evasion-clear-security-log）或敏感文件告警；确认被停服务清单（systemctl list-units --failed、journalctl 该时段）；非预期停止立即重启服务并溯源执行者
+
+# evasion-chattr-immutable：chattr 被执行（G19 退化：+i/-i 不可区分）
+- rule: Evasion Chattr Immutable
+  desc: chattr 被执行，疑似 chattr +i 锁定文件防删除/防篡改（rootkit 与挖矿守护常用，如 kinsing 锁定自身与 hosts）；G19 退化说明：exec 无 cmdline，+i 锁定与 -i 解锁不可区分，本规则退化为 chattr 执行即报
+  condition: event_type = process.exec and process.exe in (/usr/bin/chattr, /bin/chattr, /usr/sbin/chattr)
+  output: "chattr 执行（文件锁定嫌疑） (rule=%rule.name exe=%process.exe pid=%process.pid ppid=%process.ppid uid=%process.uid container=%container.container_id)"
+  priority: high
+  attack: [T1222.002, T1070, TA0005]
+  fpr_note: chattr 在日常运维中极低频（合法场景主要是日志目录 +a 加固与容器构建），exe 命中噪声可控，无需白名单；lsattr 只读查询不在本规则范围（只覆盖 chattr 本体）
+  response: lsattr 全盘检查近期被 +i 的文件（重点是 /etc、/usr/bin、crontab 与告警同主机已报可疑的二进制）；锁定的文件先 chattr -i 再取证删除；沿祖先链溯源执行者
+
+# evasion-kill-security-tool：kill/pkill/killall 被执行（G19 退化：目标进程名不可判定）
+- rule: Evasion Kill Security Tool
+  desc: kill/pkill/killall 被执行，疑似杀掉安全工具进程（本项目 monitor、edr、falco 等）使检测失效；G19 退化说明：exec 无 cmdline，pkill 的目标进程名不可判定，本规则退化为 kill 家族执行即报；pkill/killall 用 comm 判定——pkill 是指向 pgrep 的符号链接，exe 富化解析为 /usr/bin/pgrep，按 exe 会漏报且无法与 pgrep 只读查询区分，行为身份由 argv[0]（即 comm）决定；与 evasion-stop-audit-service 命中域互斥：systemctl stop 走 dbus 由 systemd 直接发信号，不产生 kill/pkill 的 exec 事件，两条规则天然不重叠
+  condition: event_type = process.exec and (process.comm in (pkill, killall) or process.exe in (/usr/bin/kill, /bin/kill))
+  output: "kill 家族工具执行（杀安全工具嫌疑） (rule=%rule.name exe=%process.exe comm=%process.comm pid=%process.pid ppid=%process.ppid uid=%process.uid container=%container.container_id)"
+  priority: medium
+  attack: [T1562.001, T1070, TA0005]
+  fpr_note: 运维脚本 kill 残留进程、OOM 处置、服务管理脚本（部分 init 脚本用 killall）会命中；shell 内建 kill 不产生 exec 事件、不在覆盖面（G1 同根限制）；comm 判定是可伪造的（先例：W6 F1 cron/F2 apt-key comm 豁免的同款权衡），但此处非 comm 不可——exe 对 pkill 恒定解析为 pgrep（符号链接）；不能用祖先链豁免 systemd——pid 1 恒在 8 层祖先链内，豁免即全量静默（W7 D3 首轮回归实测）；确认是固定运维脚本后可按祖先链 comm（非 pid 1）收窄
+  response: 确认被杀目标（同时间窗进程退出记录、被停安全工具的日志尾部）；本项目 monitor 被杀属最高优先事件——立即检查 monitor 存活与日志断档时段，按入侵响应处置

@@ -1,6 +1,6 @@
 # baseline-guard 攻击用例库
 
-22 个攻击用例（case-01~06 为 W4/W5 基础用例，case-07~14 为 W6 D1 规则包配套用例，case-15~22 为 W6 D2 规则包配套用例），
+30 个攻击用例（case-01~06 为 W4/W5 基础用例，case-07~14 为 W6 D1 规则包配套用例，case-15~22 为 W6 D2 规则包配套用例，case-23~30 为 W7 D3 挖矿/防御规避规则包配套用例），
 每个用例 = `run.sh`（攻击动作）+ `verify.sh`（预期事件核对）+ `cleanup.sh`（清理步骤）。
 所有用例对同一 monitor 实例执行，验证脚本查询 `events.db`（遥测事件）和 `baseline.db`（alerts 表），
 用打标机（mark）做增量计数，因此用例可以连跑多遍、结果互不干扰。
@@ -31,6 +31,33 @@
 | case-20 | 写 systemd unit | 追加 ExecStart 到**测试替身** unit-copy.service | alerts `dsl.persist_systemd_unit_write` ×≥1 | 原地覆盖恢复替身内容 |
 | case-21 | 篡改 ld.so.preload | 追加恶意 .so 到**测试替身** ld.so.preload-copy（绝不碰真实文件，破坏性不可逆） | alerts `dsl.persist_ld_preload_tamper` ×≥1 | 原地覆盖恢复替身内容 |
 | case-22 | 容器内执行 docker（规则版） | 与 case-04 同动作（容器挂 docker.sock 执行 docker ps），验证 DSL 规则告警 | alerts `dsl.persist_container_docker_exec` ×≥1 | 容器 --rm 自清理 |
+| case-23 | 矿池端口外联 | python3 连接 127.0.0.1:3333 本地监听（stratum 端口；禁真实外连矿池） | alerts `dsl.mining_pool_port_connect` ×≥1 | 杀监听 |
+| case-24 | 矿池域名解析 | `dig pool-test.minergate.example.invalid`（含矿池关键字，无需解析成功） | alerts `dsl.mining_pool_dns_query` ×≥1 | 无副作用 |
+| case-25 | 挖矿二进制执行 | /bin/sleep 副本改名 xmrig 放 /opt 执行（避开 /tmp 的单命中遮蔽） | alerts `dsl.mining_binary_exec` ×≥1 | 删替身 |
+| case-26 | /dev/shm 执行 | sleep 副本放 /dev/shm 执行（无扩展名；验证 shm 命中域归 mining 规则） | alerts `dsl.mining_shm_exec` ×≥1 且 `dsl.exec_suspicious_tmp_binary` ×0 | 删替身 |
+| case-27 | 清空安全日志 | 追加写**替身** auth.log-copy / wtmp-copy（G9：truncate 无事件） | alerts `dsl.evasion_clear_security_log` ×≥1 | 原地覆盖恢复 |
+| case-28 | 停审计服务 | `systemctl is-active/is-enabled auditd/rsyslog`（非破坏性；G19 退化规则无法区分动作，禁真停服务） | alerts `dsl.evasion_stop_audit_service` ×≥1 | 无副作用 |
+| case-29 | chattr 锁定 | `chattr +i` 测试文件（G19：+i/-i 不可区分） | alerts `dsl.evasion_chattr_immutable` ×≥1 | `chattr -i` |
+| case-30 | 杀安全工具 | sleep 副本改名 falco 后 `pkill`（pkill 是 pgrep 符号链接，规则按 comm 判定，G21） | alerts `dsl.evasion_kill_security_tool` ×≥1 | 杀替身进程删文件 |
+
+## W7 D3 用例（23~30）设计说明
+
+1. **替身与安全约束**：矿池连接只连 127.0.0.1 本地监听（规则选型"端口匹配不强制外网 IP"，理由见
+   rules/core/mining-ta0040.yaml desc）；DNS 用 .invalid 域名无需解析成功；日志类沿用替身路径
+   （禁动真实 /var/log）；systemctl 用 is-active 非破坏性调用（禁真停 auditd/rsyslog）。
+2. **单命中（G8）选址**：case-25 的 xmrig 替身刻意放 /opt 而非 /tmp——exec 桶内 exec-ta0002 先于
+   mining-ta0040 加载，/tmp 下无扩展名执行会归 exec-suspicious-tmp-binary；case-26 反向验证
+   /dev/shm 命中域已从 tmp 规则移交 mining-shm-exec（tmp 规则必须 ×0）。
+3. **G19 退化规则的用例形态**：case-28/29/30 验证的是"exe/comm 命中路径"而非攻击语义本身
+   （cmdline 不可见），用例注释均注明退化边界。
+4. **pkill 按 comm 判定（G21）**：pkill 是指向 pgrep 的符号链接，exe 富化后恒为 /usr/bin/pgrep，
+   按 exe 写规则永不命中；comm 取 argv[0] 调用名可区分 pkill/pgrep。
+5. **祖先链豁免的坑**：`not process.ancestors[].comm in (systemd)` 会把几乎所有交互进程豁免掉——
+   pid 1 恒在 8 层祖先链内（首轮回归 case-28/30 零告警踩出），祖先链豁免只能用非 pid-1 的 comm。
+6. **告警链路延迟**：背景事件量大时（vscode-server 噪声）告警落库峰值 ~8s，lib.sh wait_flush
+   已从 2s 放宽到 4s；个别用例偶发超窗属环境抖动，重跑即过。
+7. **rsyslog 写盘线程**：auth.log 的正常写入者 comm 是 "rs:main Q:Reg"（线程名含空格、exe 富化为空），
+   DSL 裸串无法表达含空格 comm，规则按 `rs:main`/`rs:action` 前缀豁免（见 evasion-clear-security-log fpr_note）。
 
 ## W6 D1 用例（07~14）设计说明
 
@@ -74,8 +101,8 @@ run_all.sh 做的事：
 1. 前置检查（sudo 凭据、baseline-guard、docker）。
 2. 准备用例文件（chmod 目标、受保护基线文件；`/root/.ssh/id_rsa` 不存在时生成临时假密钥并打标）。
 3. 以 `tests/attack-cases/config.yaml` 启动 monitor（LSM 或 kprobe 自动降级），等待 "Monitoring started"。
-4. 22 个用例连跑 2 遍，每遍 run → verify → cleanup；轮间等待 12s 让告警节流（throttle=10s）过期，保证每遍告警都能落库。
-5. SIGTERM 优雅停止 monitor，输出 PASS/FAIL 汇总。退出码 0 = 44 项（22 用例 × 2 轮）全 PASS。
+4. 30 个用例连跑 2 遍，每遍 run → verify → cleanup；轮间等待 12s 让告警节流（throttle=10s）过期，保证每遍告警都能落库。
+5. SIGTERM 优雅停止 monitor，输出 PASS/FAIL 汇总。退出码 0 = 60 项（30 用例 × 2 轮）全 PASS。
 
 单独跑某个用例（monitor 已在运行时）：
 

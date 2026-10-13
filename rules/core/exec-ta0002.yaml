@@ -2,7 +2,9 @@
 # 引擎约束（详见 docs/rule-engine-gaps.md）：
 #   - v1 无 cmdline/argv（G1）、无 fd/socket 关联（G2），反弹 shell 的 "-i + socket stdin"
 #     与 "socket/pty cmdline 特征" 不可表达，一律退化为 exec + 祖先链/exe 名单启发式；
-#   - network/dns/priv/ns 事件未接入规则引擎（G3），规则只用 file.* 与 process.exec。
+#   - network/dns/priv/ns 事件未接入规则引擎（G3，已修复）——本文件规则仍只用 file.* 与 process.exec；
+#   - 单命中（G8）：exec 桶内与 defense-evasion-ta0005.yaml（先加载）、mining-ta0040.yaml（后加载）
+#     的命中域已按互斥划分（详见各规则 desc 与 docs/rule-dsl-v1.md §8）。
 
 # exec-reverse-shell-bash：shell 被反弹 shell 常用父进程派生
 - rule: Exec Reverse Shell Under Interpreter
@@ -25,9 +27,11 @@
   response: 确认执行者与目的端：关联同一时间窗的 network.connect 事件看外联目标；非运维操作则按反弹 shell 处置（断链、排查落地方、检查持久化）
 
 # exec-suspicious-tmp-binary：临时目录无扩展名可执行文件
+# W7 D3 命中域划分（单命中 G8）：/dev/shm 移出本规则，由 mining-shm-exec（mining-ta0040.yaml）独占——
+# shm 执行是挖矿/无文件攻击强信号，需要独立 critical 告警与 ATT&CK 归属；本规则只管 /tmp、/var/tmp。
 - rule: Exec Suspicious Tmp Binary
-  desc: 从 /tmp、/var/tmp、/dev/shm 执行无扩展名可执行文件，符合落盘即跑与伪装手法（"无扩展名"以 not contains . 近似，见 G4）
-  condition: event_type = process.exec and (process.exe startswith /tmp/ or process.exe startswith /var/tmp/ or process.exe startswith /dev/shm/) and not process.exe contains .
+  desc: 从 /tmp、/var/tmp 执行无扩展名可执行文件，符合落盘即跑与伪装手法（"无扩展名"以 not contains . 近似，见 G4）；/dev/shm 场景 W7 D3 起移交 mining-shm-exec（命中域互斥划分，避免单命中下互相遮蔽）
+  condition: event_type = process.exec and (process.exe startswith /tmp/ or process.exe startswith /var/tmp/) and not process.exe contains .
   output: "临时目录执行可疑二进制 (rule=%rule.name exe=%process.exe pid=%process.pid ppid=%process.ppid uid=%process.uid container=%container.container_id)"
   priority: high
   attack: [T1204, T1036, TA0002]

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 攻击用例库批量执行：启动 monitor，22 个用例连跑 2 遍，输出 PASS/FAIL 汇总。
+# 攻击用例库批量执行：启动 monitor，30 个用例连跑 2 遍，输出 PASS/FAIL 汇总。
 # 用法: sudo -n bash tests/attack-cases/run_all.sh        （需要 root：加载 eBPF + 部分攻击动作用 root）
 # 退出码: 0 = 全部用例 × 2 轮 PASS；1 = 有失败项。
 set -u
@@ -19,7 +19,11 @@ CASES="case-01-reverse-shell case-02-read-etc-shadow case-03-chmod-777 \
        case-15-priv-suid-file-create case-16-priv-ptrace-attach \
        case-17-priv-kernel-module-load case-18-priv-unshare-userns \
        case-19-persist-crontab-tamper case-20-persist-systemd-unit-write \
-       case-21-persist-ld-preload case-22-persist-container-docker-exec"
+       case-21-persist-ld-preload case-22-persist-container-docker-exec \
+       case-23-mining-pool-port-connect case-24-mining-pool-dns \
+       case-25-mining-binary-exec case-26-mining-shm-exec \
+       case-27-evasion-clear-security-log case-28-evasion-stop-audit-service \
+       case-29-evasion-chattr-immutable case-30-evasion-kill-security-tool"
 
 cd "$ROOT_DIR"
 mkdir -p "$WORK_DIR"
@@ -75,6 +79,12 @@ EOF
 cat > "$WORK_DIR/ld.so.preload-copy" <<'EOF'
 # 攻击用例库 ld.so.preload 替身（对应 /etc/ld.so.preload）
 EOF
+# W7 D3 防御规避类用例的测试替身（同样必须先于 monitor 启动创建：DSL 规则 file.path
+# 字面量在加载期自动登记 inode，G6 已修复；cleanup 用 cat > 原地覆盖恢复，避免 inode 变化）
+cat > "$WORK_DIR/auth.log-copy" <<'EOF'
+Oct 12 00:00:01 host sshd[1000]: Server listening on 0.0.0.0 port 22.
+EOF
+printf 'reboot~test\n' > "$WORK_DIR/wtmp-copy"
 # /root/.ssh/id_rsa 不存在时生成临时假密钥，cleanup 会删除
 if [ ! -f /root/.ssh/id_rsa ]; then
     mkdir -p /root/.ssh && chmod 700 /root/.ssh

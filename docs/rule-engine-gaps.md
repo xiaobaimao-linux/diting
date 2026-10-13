@@ -117,3 +117,27 @@
 ## G18 规则内文件路径无法登记时加载期无提示（加载警告缺口）
 
 - **已修复（2026-10-12，W7 D1）**：随 G6 登记流程落地——路径不存在 / 非绝对路径 / 含通配符三类逐条 warn（格式：规则ID + 路径 + 原因 + "该文件条件不生效"降级说明），map 写失败（容量满）同款 warn；不阻断其余规则加载。语义边界：规则文件本身解析失败 = G17 fail-fast；规则内路径登记失败 = 本项 warn 降级。
+
+## G19 无 cmdline 使"同 exe 不同意图"的工具类规则只能退化（G1 的影响扩展登记）
+
+- 现状：同 G1（exec 无 cmdline/argv），W7 D3 写防御规避/挖矿规则时影响集中爆发，单独登记以挂 v2 草案。
+- 影响（W7 D3 实测退化）：`evasion-stop-audit-service` 的 systemctl **动作与目标**（stop/disable + auditd/rsyslog）不可判定，退化为 systemctl 执行即报（priority 降 medium，status/restart 全命中）；`evasion-chattr-immutable` 的 **+i/-i** 不可区分；`evasion-kill-security-tool` 的 **pkill 目标进程名**不可判定，退化为 kill 家族执行即报；`mining-binary-exec` 的 **--donate-level / stratum+tcp://** 命令行特征不可表达，随机改名矿机漏报。
+- 退化方案：exe 命中 + fpr_note 声明噪声（**不能**用祖先链豁免 systemd 做降噪——pid 1 恒在 8 层祖先链内，豁免即全量静默，W7 D3 首轮回归实测 case-28/30 零告警踩出）；检出缺口靠 shm 执行/矿池端口/DNS 三条单因子规则互补。
+- v2 草案（cmdline 采集落地后改写）：
+  - stop-audit：`process.exe in (systemctl 路径) and process.cmdline contains (stop, disable) and process.cmdline contains (auditd, rsyslog, audit)`；
+  - chattr：`process.exe = chattr 路径 and process.cmdline contains +i`；
+  - kill-security-tool：`process.exe in (pkill, killall) and process.cmdline contains (falco, edr, baseline-guard, osquery, auditd)`；
+  - mining-binary：`process.cmdline contains (--donate-level, stratum+tcp, stratum+ssl)`（与 exe 名 or 关系）。
+
+## G21 exe 富化解析符号链接真实路径，argv[0] 双行为二进制按 exe 不可区分
+
+- 现状：exec 事件的 `process.exe` 富化为可执行文件真实路径——`/usr/bin/pkill` 是指向 `pgrep` 的符号链接，pkill 执行时 exe 渲染为 `/usr/bin/pgrep`（W7 D3 case-30 实测：condition 写 pkill 路径零命中，events.db 中 comm=pkill、exe=/usr/bin/pgrep）。busybox/toybox 家族（/bin/ls → busybox）同款。
+- 影响：按"调用名"区分行为的工具（pkill vs pgrep 只读查询、killall vs pidof），按 exe 写规则要么漏报（写 pkill 路径永不命中）、要么混报（写 pgrep 路径把只读查询也报进来）。
+- 退化方案：`evasion-kill-security-tool` 改用 `process.comm in (pkill, killall)` 判定调用名（comm 即 argv[0] 前 15 字符），可伪造的权衡写入 fpr_note。
+- v2 方向：exec 事件同时携带 exe 原始路径（未解析符号链接）或 argv[0]。
+
+## G20 无 CIDR/网段比较（IP 白名单只能逐字面量枚举）
+
+- 现状：`network.sip/dip` 为点分文本 string，比较仅 `=`/`!=`/`in`/`contains`/`startswith`；无 CIDR 匹配（如 `network.dip in 10.0.0.0/8`）。
+- 影响：`mining-pool-port-connect` 想"排除内网/回环"只能 `and not network.dip in (127.0.0.1, ...)` 逐 IP 枚举，回环段 127.0.0.0/8 枚举世不可行；最终选型"端口匹配不强制外网 IP"（理由见该规则 desc：回环白名单会放行本地代理跳板挖矿路径）。
+- v2 方向：加 `cidr` 操作符或 startswith 按段近似（`network.dip startswith 10.` 已可表达但语义粗糙，点分文本前缀与子网不对齐）。

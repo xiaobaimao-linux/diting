@@ -30,8 +30,9 @@ mark_begin() {
     sqlite_run "$ALERTS_DB" "select coalesce(max(id),0) from alerts;" > "${MARK_DIR}/${tag}.alerts.before"
 }
 
-# 事件落库是批量的（batch_ms 200），等 2s 足够 flush
-wait_flush() { sleep 2; }
+# 事件落库是批量的（batch_ms 200），告警链路在背景事件量大时延迟可到数秒
+#（W7 D3 实测：vscode-server 背景噪声下峰值 ~8s），2s 余量不足，统一放宽到 4s
+wait_flush() { sleep 4; }
 
 count_events_since() { # $1=tag $2=where 条件(payload/category 等)
     local tag="$1" cond="$2" min_id
