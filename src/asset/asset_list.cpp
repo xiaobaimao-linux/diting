@@ -18,7 +18,7 @@ namespace fs = std::filesystem;
 using json = nlohmann::json;
 
 struct ListOptions {
-    std::string db_path = "/var/lib/baseline-guard/baseline.db";
+    std::string db_path = "/var/lib/diting/baseline.db";
     std::string asset_type;
     int limit = 0;  // 0 = 不限制
     int offset = 0;
@@ -29,7 +29,7 @@ const std::set<std::string> kKnownTypes = {"package", "port", "process", "autost
                                            "cron", "gpu", "model_file"};
 
 void PrintUsage() {
-    std::cout << "Usage: baseline-guard asset list [options]\n"
+    std::cout << "Usage: diting asset list [options]\n"
               << "List host assets from the SQLite assets table.\n"
               << "\n"
               << "Options:\n"
@@ -41,8 +41,8 @@ void PrintUsage() {
               << "  -h, --help   display this message\n"
               << "\n"
               << "Examples:\n"
-              << "  baseline-guard asset list --type package\n"
-              << "  baseline-guard asset list --json > assets.json\n";
+              << "  diting asset list --type package\n"
+              << "  diting asset list --json > assets.json\n";
 }
 
 bool ParseOptions(int argc, char* argv[], ListOptions& options, bool& help,

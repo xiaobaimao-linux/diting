@@ -23,7 +23,7 @@ inline int Pri(const std::string& severity) {
 }  // namespace syslog_map
 
 // Syslog 渠道（INotifier 第二个实现，与 webhook 双通道并存）：
-// RFC 5424 格式外发，APP-NAME=baseline-guard，SD 携带 rule_id/severity 等关键字段。
+// RFC 5424 格式外发，APP-NAME=diting，SD 携带 rule_id/severity 等关键字段。
 // 传输二选一（构造时定型）：host 非空 → UDP host:port（port 默认 514）；
 // host 为空 → 本地 /dev/log（SOCK_DGRAM）。所配置的通道发送失败即 Send 返回 false。
 //

@@ -6,7 +6,7 @@
 
 ## 1. 对账数据
 
-口径说明：每次 `cat` 产生 2 个 file.read 事件（open + read 系统调用各触发一次 LSM file_permission），5,000 次 cat → 10,000 条命中事件；告警落 /var/lib/baseline-guard/baseline.db（AlertManager 默认路径，--db 不影响告警库）。
+口径说明：每次 `cat` 产生 2 个 file.read 事件（open + read 系统调用各触发一次 LSM file_permission），5,000 次 cat → 10,000 条命中事件；告警落 /var/lib/diting/baseline.db（AlertManager 默认路径，--db 不影响告警库）。
 
 | 项 | 数值 |
 |---|---|

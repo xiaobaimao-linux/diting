@@ -4,9 +4,9 @@
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EVENTS_DB="${ROOT_DIR}/events.db"
-# 注意：monitor 的实时告警固定落系统库 /var/lib/baseline-guard/baseline.db
+# 注意：monitor 的实时告警固定落系统库 /var/lib/diting/baseline.db
 # （main.cpp 里 alert_db 用默认路径，与 monitor --db 无关），别查仓库里的 baseline.db。
-ALERTS_DB="/var/lib/baseline-guard/baseline.db"
+ALERTS_DB="/var/lib/diting/baseline.db"
 WORK_DIR="/tmp/bg-attack-cases"
 MARK_DIR="${WORK_DIR}/marks"
 

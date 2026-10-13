@@ -13,7 +13,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
-BIN="$PROJECT_DIR/baseline-guard"
+BIN="$PROJECT_DIR/diting"
 FLOOD="$PROJECT_DIR/tests/integration/helpers/pipe_flood"
 RUN_TESTS="$PROJECT_DIR/tests/run_tests.sh"
 TEST_MONITOR="$SCRIPT_DIR/test_monitor.sh"

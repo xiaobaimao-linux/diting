@@ -82,7 +82,7 @@ std::string RenderCisReportJson(const std::vector<CisResultRow>& rows, const std
     }
 
     json root;
-    root["tool"] = "baseline-guard";
+    root["tool"] = "diting";
     root["report"] = "cis-baseline";
     root["schema_version"] = 1;
     root["generated_at"] = NowIso();
@@ -151,7 +151,7 @@ std::string RenderCisReportHtml(const std::vector<CisResultRow>& rows, const std
     std::ostringstream out;
     out << "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n"
         << "<meta charset=\"utf-8\">\n"
-        << "<title>CIS 基线合规报告 - baseline-guard</title>\n"
+        << "<title>CIS 基线合规报告 - diting</title>\n"
         << "<style>\n"
         << "body{font-family:\"Helvetica Neue\",Arial,\"Microsoft YaHei\",sans-serif;margin:24px;color:#222;}\n"
         << "h1{font-size:22px;margin-bottom:4px;}\n"
@@ -172,7 +172,7 @@ std::string RenderCisReportHtml(const std::vector<CisResultRow>& rows, const std
         << "</style>\n</head>\n<body>\n";
 
     out << "<h1>CIS 基线合规报告</h1>\n"
-        << "<div class=\"meta\">工具: baseline-guard | 报告: cis-baseline | schema_version: 1 | 主机: "
+        << "<div class=\"meta\">工具: diting | 报告: cis-baseline | schema_version: 1 | 主机: "
         << HtmlEscape(host) << " | 生成时间: " << HtmlEscape(NowIso()) << "</div>\n";
 
     char rate_buf[32];

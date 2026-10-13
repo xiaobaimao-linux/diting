@@ -69,7 +69,7 @@ static std::set<int> GetOnlineCPUs() {
 }
 
 static void PrintUsage() {
-    printf("Usage: baseline-guard stats [options]\n");
+    printf("Usage: diting stats [options]\n");
     printf("Options:\n");
     printf("  --drop        show drop/accounting counters from pinned eBPF maps\n");
     printf("  -h, --help    display this message\n");
@@ -203,7 +203,7 @@ int RunStats(int argc, char* argv[]) {
 
     if (!any) {
         fprintf(stderr, "Error: no pinned stats maps found under %s\n", BG_PIN_DIR);
-        fprintf(stderr, "Is the monitor process running? (sudo ./baseline-guard monitor --db ...)\n");
+        fprintf(stderr, "Is the monitor process running? (sudo ./diting monitor --db ...)\n");
         return 1;
     }
     return 0;

@@ -8,7 +8,7 @@
 
 **2. DSL 文件规则自动登记 inode：开箱即坏与开箱即用之间只差一个决策。** G6 的老问题：DSL 规则写 file.path = X 而 config 没注册 X，内核 monitor_actions map 查不到 inode 直接丢事件——规则永远静默不触发。W6 校准把"自动注册 vs 加载期警告"列为待拍板决策点，本周拍板自动注册：加载时从 condition 树抽出 file.path 的 =/in 字面量（ExtractFilePathRefs），自动登记进内核 map，引用计数反登记、不碰 config 和基线已占的 inode；路径不存在、相对路径、含通配符三类逐条 warn 降级（G18），不拖累同文件其它规则。语义边界划清楚了：规则文件本身解析失败 = G17 fail-fast；规则内单个路径登记失败 = warn 降级。用户写一条 file 规则就能收到告警，不用再先跑基线。
 
-**3. 单实例锁：终结"引擎不确定性"假象。** W6 case-22 出现过"同一动作有时命中 core 规则、有时命中 examples 规则"的怪象，一度怀疑引擎求值不确定——真凶是历史会话残留的 monitor：两个实例消费同一批内核事件、各自节流、落同一个告警库。本周 flock 单实例锁落地（/var/run/baseline-guard-monitor.lock，探针加载前获取），第二实例带持锁 pid 报错退出；fd 进程级持有，正常退出和 kill -9 都由内核自动释放，不留死锁残局。run_all.sh 里"清残留"的防御脚本退役——机制代替纪律。
+**3. 单实例锁：终结"引擎不确定性"假象。** W6 case-22 出现过"同一动作有时命中 core 规则、有时命中 examples 规则"的怪象，一度怀疑引擎求值不确定——真凶是历史会话残留的 monitor：两个实例消费同一批内核事件、各自节流、落同一个告警库。本周 flock 单实例锁落地（/var/run/diting-monitor.lock，探针加载前获取），第二实例带持锁 pid 报错退出；fd 进程级持有，正常退出和 kill -9 都由内核自动释放，不留死锁残局。run_all.sh 里"清残留"的防御脚本退役——机制代替纪律。
 
 **4. 规则包补齐口径：挖矿 + 防御规避 8 条。** mining-ta0040 四条（矿池端口/DNS/矿机名/shm 执行）、defense-evasion-ta0005 四条（清安全日志/停审计服务/chattr 锁文件/杀安全工具），core 到 24 条，W6 欠的 20+ 口径还清。cmdline 不可见（G1）的账在这批规则上集中爆发，单独登记 G19：systemctl 的动作与目标、chattr 的 +i/-i、pkill 的目标进程全都判不了，三条规则退化为 exe/comm 命中即报，噪声权衡写进 fpr_note，v2 草案（cmdline contains）一并存档。命中域互斥同步调整：/dev/shm 从 tmp 规则移交 mining-shm-exec 独占，case-26 双向断言（shm 规则 ×≥1 且 tmp 规则 ×0）。三因子关联挖矿设计（陌生 exe + 矿池外联 + 资源异常，三取二升 critical）定稿排 v2，不在 v1 实现。
 

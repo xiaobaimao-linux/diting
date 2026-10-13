@@ -2,10 +2,10 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug monitor baseline-guard",
+            "name": "Debug monitor diting",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/baseline-guard",
+            "program": "${workspaceFolder}/diting",
             "args": [
                 "-c",
                 "${workspaceFolder}/tests/fixtures/default.yaml",
@@ -32,10 +32,10 @@
             "preLaunchTask": "buildA"
         },
         {
-            "name": "Debug check baseline-guard",
+            "name": "Debug check diting",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/baseline-guard",
+            "program": "${workspaceFolder}/diting",
             "args": [
                 "-c",
                 "${workspaceFolder}/tests/fixtures/default.yaml",

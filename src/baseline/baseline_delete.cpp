@@ -13,13 +13,13 @@ namespace {
 namespace fs = std::filesystem;
 
 struct DeleteOptions {
-    std::string db_path = "/var/lib/baseline-guard/baseline.db";
+    std::string db_path = "/var/lib/diting/baseline.db";
     std::vector<std::string> paths;
     bool recursive = false;
 };
 
 void PrintUsage() {
-    std::cout << "Usage: baseline-guard baseline delete [options] PATH...\n"
+    std::cout << "Usage: diting baseline delete [options] PATH...\n"
               << "Delete baseline entries for the specified paths.\n"
               << "\n"
               << "Options:\n"
@@ -30,9 +30,9 @@ void PrintUsage() {
               << "  -h, --help            display this message\n"
               << "\n"
               << "Examples:\n"
-              << "  baseline-guard baseline delete /etc/passwd --db baseline.db\n"
-              << "  baseline-guard baseline delete /etc --recurse --db baseline.db\n"
-              << "  baseline-guard baseline delete /etc/passwd /root/.ssh --recurse\n";
+              << "  diting baseline delete /etc/passwd --db baseline.db\n"
+              << "  diting baseline delete /etc --recurse --db baseline.db\n"
+              << "  diting baseline delete /etc/passwd /root/.ssh --recurse\n";
 }
 
 bool ParseOptions(int argc, char* argv[], DeleteOptions& options, bool& help,

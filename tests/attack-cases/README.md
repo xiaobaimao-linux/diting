@@ -1,4 +1,4 @@
-# baseline-guard 攻击用例库
+# diting 攻击用例库
 
 30 个攻击用例（case-01~06 为 W4/W5 基础用例，case-07~14 为 W6 D1 规则包配套用例，case-15~22 为 W6 D2 规则包配套用例，case-23~30 为 W7 D3 挖矿/防御规避规则包配套用例），
 每个用例 = `run.sh`（攻击动作）+ `verify.sh`（预期事件核对）+ `cleanup.sh`（清理步骤）。
@@ -98,7 +98,7 @@ sudo -n bash tests/attack-cases/run_all.sh
 ```
 
 run_all.sh 做的事：
-1. 前置检查（sudo 凭据、baseline-guard、docker）。
+1. 前置检查（sudo 凭据、diting、docker）。
 2. 准备用例文件（chmod 目标、受保护基线文件；`/root/.ssh/id_rsa` 不存在时生成临时假密钥并打标）。
 3. 以 `tests/attack-cases/config.yaml` 启动 monitor（LSM 或 kprobe 自动降级），等待 "Monitoring started"。
 4. 30 个用例连跑 2 遍，每遍 run → verify → cleanup；轮间等待 12s 让告警节流（throttle=10s）过期，保证每遍告警都能落库。
@@ -120,7 +120,7 @@ bash tests/attack-cases/case-02-read-etc-shadow/verify.sh my-tag
 
 ## 实测发现（2026-10-03 首轮验证踩出，已按实际行为修正 verify 脚本）
 
-1. **monitor 实时告警固定落系统库 `/var/lib/baseline-guard/baseline.db`**（`main.cpp` 中 alert_db
+1. **monitor 实时告警固定落系统库 `/var/lib/diting/baseline.db`**（`main.cpp` 中 alert_db
    使用默认路径），与 `monitor --db` 指定的文件无关。verify 查 alerts 必须查系统库（root 权限）。
 2. **规则类告警的 event_type 归一化为 `read`/`write`**（chmod 触发也是 `write`）；
    `perm_changed`/`hash_changed`/`missing` 只属于离线基线核查（rule_id=`baseline-check`）。

@@ -1880,9 +1880,9 @@ static int do_monitor_ringbuf(const Config& config, AlertManager &alert_mgr,
                  config.rules.size());
 
     // Pin maps
-    (void)mkdir("/sys/fs/bpf/baseline-guard", 0755);
+    (void)mkdir("/sys/fs/bpf/diting", 0755);
     pin_map_best_effort(skel->maps.drop_stats, DROP_STATS_PIN_PATH);
-    pin_map_best_effort(skel->maps.watermark_level, "/sys/fs/bpf/baseline-guard/watermark_level");
+    pin_map_best_effort(skel->maps.watermark_level, "/sys/fs/bpf/diting/watermark_level");
     pin_map_best_effort(skel->maps.user_stats, USER_STATS_PIN_PATH);
 
     int fd_actions   = bpf_map__fd(skel->maps.monitor_actions);
@@ -2088,9 +2088,9 @@ static int do_monitor_ringbuf(const Config& config, AlertManager &alert_mgr,
         network_monitor_stop(net_skel, net_rb);
     ring_buffer__free(rb);
 
-    bpf_map__unpin(skel->maps.drop_stats, "/sys/fs/bpf/baseline-guard/drop_stats");
-    bpf_map__unpin(skel->maps.watermark_level, "/sys/fs/bpf/baseline-guard/watermark_level");
-    bpf_map__unpin(skel->maps.user_stats, "/sys/fs/bpf/baseline-guard/user_stats");
+    bpf_map__unpin(skel->maps.drop_stats, "/sys/fs/bpf/diting/drop_stats");
+    bpf_map__unpin(skel->maps.watermark_level, "/sys/fs/bpf/diting/watermark_level");
+    bpf_map__unpin(skel->maps.user_stats, "/sys/fs/bpf/diting/user_stats");
     lsm_file_bpf__destroy(skel);
 
     delete store;
@@ -2141,7 +2141,7 @@ static int do_monitor_perf(const Config& config, AlertManager &alert_mgr,
                  config.rules.size());
 
     // Pin drop_stats
-    (void)mkdir("/sys/fs/bpf/baseline-guard", 0755);
+    (void)mkdir("/sys/fs/bpf/diting", 0755);
     pin_map_best_effort(skel->maps.drop_stats, DROP_STATS_PIN_PATH);
     pin_map_best_effort(skel->maps.user_stats, USER_STATS_PIN_PATH);
 
@@ -2173,8 +2173,8 @@ static int do_monitor_perf(const Config& config, AlertManager &alert_mgr,
     spdlog::info("Monitoring stopped.");
     perf_buffer__free(pb);
 
-    bpf_map__unpin(skel->maps.drop_stats, "/sys/fs/bpf/baseline-guard/drop_stats");
-    bpf_map__unpin(skel->maps.user_stats, "/sys/fs/bpf/baseline-guard/user_stats");
+    bpf_map__unpin(skel->maps.drop_stats, "/sys/fs/bpf/diting/drop_stats");
+    bpf_map__unpin(skel->maps.user_stats, "/sys/fs/bpf/diting/user_stats");
     lsm_file_perf_bpf__destroy(skel);
 
     if (baseline_db) {
@@ -2231,7 +2231,7 @@ static int do_monitor_kprobe(const Config& config, AlertManager &alert_mgr,
                  config.rules.size());
 
     // Pin drop_stats
-    (void)mkdir("/sys/fs/bpf/baseline-guard", 0755);
+    (void)mkdir("/sys/fs/bpf/diting", 0755);
     pin_map_best_effort(skel->maps.drop_stats, DROP_STATS_PIN_PATH);
     pin_map_best_effort(skel->maps.user_stats, USER_STATS_PIN_PATH);
 
@@ -2267,8 +2267,8 @@ static int do_monitor_kprobe(const Config& config, AlertManager &alert_mgr,
     spdlog::info("Monitoring stopped.");
     perf_buffer__free(pb);
 
-    bpf_map__unpin(skel->maps.drop_stats, "/sys/fs/bpf/baseline-guard/drop_stats");
-    bpf_map__unpin(skel->maps.user_stats, "/sys/fs/bpf/baseline-guard/user_stats");
+    bpf_map__unpin(skel->maps.drop_stats, "/sys/fs/bpf/diting/drop_stats");
+    bpf_map__unpin(skel->maps.user_stats, "/sys/fs/bpf/diting/user_stats");
     bpf_link__destroy(link_perm);
     bpf_link__destroy(link_chmod);
     bpf_link__destroy(link_chown);
@@ -2291,7 +2291,7 @@ int do_monitor(const Config& config, AlertManager &alert_mgr,
     // ── 单实例锁（W7 D1 / G16）：探针加载、ring buffer 创建之前获取 ──
     // flock 方案：锁由进程级 fd 持有，正常退出与 kill -9 均由内核自动释放，
     // 无 stale pidfile 问题。双开会同时消费 ring buffer 并写同一告警库（G16 串扰）。
-    static const char* kMonitorLockPath = "/var/run/baseline-guard-monitor.lock";
+    static const char* kMonitorLockPath = "/var/run/diting-monitor.lock";
     {
         int holder_pid = -1;
         std::string lock_err;

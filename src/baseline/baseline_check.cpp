@@ -31,7 +31,7 @@ constexpr const char* kRuleId   = "baseline-check";
 constexpr const char* kRuleName = "离线基线核查";
 
 struct CheckOptions {
-    std::string db_path = "/var/lib/baseline-guard/baseline.db";
+    std::string db_path = "/var/lib/diting/baseline.db";
     std::string path_filter;
     std::string report_html;
     std::string config_path;
@@ -51,7 +51,7 @@ struct CheckFinding {
 // ── helpers ──────────────────────────────────────────────────────────
 
 void PrintUsage() {
-    std::cout << "Usage: baseline-guard baseline check [options]\n"
+    std::cout << "Usage: diting baseline check [options]\n"
               << "Offline baseline integrity check against SQLite baseline entries.\n"
               << "\n"
               << "Options:\n"
@@ -64,11 +64,11 @@ void PrintUsage() {
               << "  -h, --help            display this message\n"
               << "\n"
               << "Examples:\n"
-              << "  baseline-guard baseline check\n"
-              << "  baseline-guard baseline check --path-filter \"/etc%\"\n"
-              << "  baseline-guard baseline check --send-webhook -c config.yaml\n"
-              << "  baseline-guard baseline check --path-filter \"/etc%\" --report_html check.html\n"
-              << "  baseline-guard baseline check --json\n";
+              << "  diting baseline check\n"
+              << "  diting baseline check --path-filter \"/etc%\"\n"
+              << "  diting baseline check --send-webhook -c config.yaml\n"
+              << "  diting baseline check --path-filter \"/etc%\" --report_html check.html\n"
+              << "  diting baseline check --json\n";
 }
 
 bool ParseOptions(int argc, char* argv[], CheckOptions& options, bool& help,

@@ -11,7 +11,7 @@
 |---|---|---|---|
 | 1 | 加载器回归修复 fail-fast（W6 校准 §2#1 / §3 D1） | ✓ | commit 235ae96；任一规则文件失败或 enabled 但 0 条即拒启（G17） |
 | 2 | CIS 定义文件移出 rules/ 递归范围（§2#1 配套） | ✓ | `rules/cis/` → `cis/`，cis_main 默认路径同步 |
-| 3 | G16 单实例锁（pidfile/flock 互斥，§2#2 / §3 D1） | ✓ | `src/common/instance_lock.cpp`，锁文件 `/var/run/baseline-guard-monitor.lock`，kill -9 内核自动释放 |
+| 3 | G16 单实例锁（pidfile/flock 互斥，§2#2 / §3 D1） | ✓ | `src/common/instance_lock.cpp`，锁文件 `/var/run/diting-monitor.lock`，kill -9 内核自动释放 |
 | 4 | D1 验收：22 用例 ×2 轮全 PASS（§3 D1） | ✓ | 44/44（commit 235ae96 回归记录） |
 | 5 | DSL 文件规则 inode 注册决策拍板（§2#3 决策点 / §3 D2） | ✓ | 拍板**自动注册**：`ExtractFilePathRefs` 抽 `=`/`in` 字面量自动登记 monitor_actions map |
 | 6 | 自动登记实现 + 加载期逐条 warn（§3 D2 验收） | ✓ | 不存在/相对路径/通配符逐条 warn 不拖累其它规则（G6 部分修复 + G18）；引用计数反登记 |

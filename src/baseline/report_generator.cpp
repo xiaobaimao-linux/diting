@@ -45,7 +45,7 @@ bool ReportGenerator::GenerateCheckHtml(const std::vector<CheckResult>& results,
 <html>
 <head>
 <meta charset="UTF-8">
-<title>baseline-guard 基线核查报告</title>
+<title>diting 基线核查报告</title>
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;max-width:960px;margin:40px auto;padding:0 20px;color:#333}
 h1{color:#1a1a1a;border-bottom:2px solid #0366d6;padding-bottom:10px}
@@ -70,7 +70,7 @@ tr:hover{background:#f6f8fa}
 </style>
 </head>
 <body>
-<h1>🔒 baseline-guard 基线核查报告</h1>
+<h1>🔒 diting 基线核查报告</h1>
 <p>生成时间：)" << GetCurrentTime() << R"(</p>
 <p>主机：)" << EscapeHtml(GetHostname()) << R"(</p>
 
@@ -117,7 +117,7 @@ tr:hover{background:#f6f8fa}
 </table>
 
 <div class="footer">
-<p>由 baseline-guard 自动生成 | https://github.com/xiaobaimao-linux/ebpf-baseline</p>
+<p>由 diting 自动生成 | https://github.com/xiaobaimao-linux/ebpf-baseline</p>
 <p>如需技术支持，请联系：xiaobaimao-linux@proton.me</p>
 </div>
 
@@ -148,7 +148,7 @@ bool ReportGenerator::GenerateMonitorEventsHtml(const std::vector<AlertRecord> &
 <html>
 <head>
 <meta charset="UTF-8">
-<title>baseline-guard monitor 事件报告</title>
+<title>diting monitor 事件报告</title>
 <style>
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;max-width:1400px;margin:40px auto;padding:0 20px;color:#333}
 h1{color:#1a1a1a;border-bottom:2px solid #dc3545;padding-bottom:10px}
@@ -166,7 +166,7 @@ tr:hover{background:#f6f8fa}
 </style>
 </head>
 <body>
-<h1>baseline-guard monitor 事件报告</h1>
+<h1>diting monitor 事件报告</h1>
 <p>生成时间：)"
        << NowString() << R"(</p>
 <p>主机：)"
@@ -246,7 +246,7 @@ tr:hover{background:#f6f8fa}
 </table>
 
 <div class="footer">
-<p>由 baseline-guard 自动生成 | https://github.com/xiaobaimao-linux/ebpf-baseline</p>
+<p>由 diting 自动生成 | https://github.com/xiaobaimao-linux/ebpf-baseline</p>
 </div>
 
 </body>

@@ -22,7 +22,7 @@
    - whoami 子进程 exec（ppid=6740，反弹 shell 内执行）
 3. **进程链富化**：反弹 bash 祖先链 8 层（bash→timeout→bash→node→node→sh→code-server→sh→sshd），事件库 `events.db` 的 `events` 表 payload 可查
 4. **chmod 实时告警**：`chmod 777` 触发 `perm_changed`（medium），带操作者上下文 `proc=chmod pid=6628`，alerts 表 + CLI `alerts` 可查
-5. **HTML 报表**：`baseline-guard report -o w2_demo_report.html`
+5. **HTML 报表**：`diting report -o w2_demo_report.html`
 
 ## 踩坑记录（本周核心价值）
 

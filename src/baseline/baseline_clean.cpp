@@ -15,12 +15,12 @@ namespace {
 namespace fs = std::filesystem;
 
 struct CleanOptions {
-    std::string db_path = "/var/lib/baseline-guard/baseline.db";
+    std::string db_path = "/var/lib/diting/baseline.db";
     bool dry_run = false;
 };
 
 void PrintUsage() {
-    std::cout << "Usage: baseline-guard baseline clean [options]\n"
+    std::cout << "Usage: diting baseline clean [options]\n"
               << "Clean orphan baseline entries (files no longer exist on disk).\n"
               << "\n"
               << "Options:\n"
@@ -29,8 +29,8 @@ void PrintUsage() {
               << "  -h, --help            display this message\n"
               << "\n"
               << "Examples:\n"
-              << "  baseline-guard baseline clean --dry-run\n"
-              << "  baseline-guard baseline clean --db baseline.db\n";
+              << "  diting baseline clean --dry-run\n"
+              << "  diting baseline clean --db baseline.db\n";
 }
 
 bool ParseOptions(int argc, char* argv[], CleanOptions& options, bool& help,

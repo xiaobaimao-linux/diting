@@ -136,11 +136,11 @@ std::string SyslogNotifier::FormatMessage(const AlertEvent& alert) const {
     msg += Rfc5424Timestamp();
     msg.push_back(' ');
     msg += hostname_;
-    msg += " baseline-guard ";
+    msg += " diting ";
     msg += std::to_string(pid_);
     msg.push_back(' ');
     msg += alert.rule_id.empty() ? "-" : alert.rule_id;   // MSGID 用 rule_id
-    msg += " [baseline-guard rule_id=\"";
+    msg += " [diting rule_id=\"";
     msg += EscapeSdValue(alert.rule_id);
     msg += "\" severity=\"";
     msg += EscapeSdValue(alert.severity);

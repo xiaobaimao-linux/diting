@@ -10,7 +10,7 @@ bpf/test_filename_lookup.c
 
 # 测试/调试产物
 dump.txt
-baseline-guard
+diting
 req/
 back/
 

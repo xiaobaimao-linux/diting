@@ -112,7 +112,7 @@ struct AlertStatRow {
 
 class BaselineDB {
 public:
-    explicit BaselineDB(const std::string& db_path = "/var/lib/baseline-guard/baseline.db");
+    explicit BaselineDB(const std::string& db_path = "/var/lib/diting/baseline.db");
 
     ~BaselineDB();
 

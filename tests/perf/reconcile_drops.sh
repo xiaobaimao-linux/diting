@@ -33,9 +33,9 @@ get_stat() {  # get_stat <file> <key> → value（取最后一次出现，无则
 
 echo "=== 启动 monitor ==="
 if [ "$(id -u)" -eq 0 ]; then
-    bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/baseline-guard' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config.yaml'" >"$WORK/reconcile_monitor.log" 2>&1 &
+    bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/diting' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config.yaml'" >"$WORK/reconcile_monitor.log" 2>&1 &
 else
-    $SUDO bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/baseline-guard' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config.yaml'" >"$WORK/reconcile_monitor.log" 2>&1 &
+    $SUDO bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/diting' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config.yaml'" >"$WORK/reconcile_monitor.log" 2>&1 &
 fi
 for i in $(seq 1 40); do
     grep -q "Monitoring started" "$WORK/reconcile_monitor.log" && break
@@ -46,7 +46,7 @@ echo "monitor pid=$MPID"
 sleep 2   # 等 boot baseline check 产生的读事件落定（其不计入 before 快照之后的对账）
 
 echo "=== before 快照 ==="
-$SUDO ./baseline-guard stats --drop > "$RES/reconcile_before.txt"
+$SUDO ./diting stats --drop > "$RES/reconcile_before.txt"
 EV_BEFORE=$(sqlite3 events_perf.db "select count(*) from events where json_extract(payload,'\$.file.path')='$TARGET';")
 
 echo "=== 压测: ops=$OPS secs=$SECS rate=$RATE ==="
@@ -67,7 +67,7 @@ STABLE=0
 for i in $(seq 1 40); do
     sleep 2
     EV_NOW=$(sqlite3 events_perf.db "select count(*) from events where json_extract(payload,'\$.file.path')='$TARGET';")
-    $SUDO ./baseline-guard stats --drop > "$RES/reconcile_drain.txt"
+    $SUDO ./diting stats --drop > "$RES/reconcile_drain.txt"
     DROP_NOW=$(get_stat "$RES/reconcile_drain.txt" "bus.queue_full.hi.p0_file")
     if [ "$EV_NOW" -eq "$PREV_EV" ] && [ "$DROP_NOW" -eq "$PREV_DROP" ]; then
         STABLE=1
@@ -80,7 +80,7 @@ done
 [ "$STABLE" -eq 1 ] || echo "WARN: 排干等待超时，快照可能含在途事件"
 
 echo "=== after 快照 ==="
-$SUDO ./baseline-guard stats --drop > "$RES/reconcile_after.txt"
+$SUDO ./diting stats --drop > "$RES/reconcile_after.txt"
 EV_AFTER=$(sqlite3 events_perf.db "select count(*) from events where json_extract(payload,'\$.file.path')='$TARGET';")
 
 echo "=== 停止 monitor ==="

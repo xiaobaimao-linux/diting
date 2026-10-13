@@ -1,5 +1,5 @@
 # 攻击用例库专用 monitor 配置（tests/attack-cases/）
-# 用法: sudo ./baseline-guard monitor --db baseline.db -c tests/attack-cases/config.yaml
+# 用法: sudo ./diting monitor --db baseline.db -c tests/attack-cases/config.yaml
 # 与仓库根 config.yaml 的差异：补充了用例需要的监控路径；throttle 调小，保证用例连跑 2 遍时每遍都能落库。
 
 telemetry:

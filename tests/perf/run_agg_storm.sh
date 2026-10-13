@@ -25,13 +25,13 @@ SINK_PID=$!
 sleep 0.5
 
 echo "=== 启动 monitor (tests/perf/config_agg_storm.yaml) ==="
-bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/baseline-guard' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config_agg_storm.yaml'" >"$LOG" 2>&1 &
+bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/diting' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config_agg_storm.yaml'" >"$LOG" 2>&1 &
 for i in $(seq 1 40); do grep -q "Monitoring started" "$LOG" && break; sleep 0.5; done
 MPID=$(cat "$PIDFILE")
 grep -m1 '\[notify\]' "$LOG" || echo "(no notify log line)"
 echo "monitor pid=$MPID"
 
-DB=/var/lib/baseline-guard/baseline.db
+DB=/var/lib/diting/baseline.db
 RULE_FILTER="rule_id IN ('$RULE_ID','STORM-SRC')"   # FIM allow 规则与 DSL 规则同事件各落一条
 EV_SQL="select count(*) from events where json_extract(payload,'\$.file.path')='$TARGET' and json_extract(payload,'\$.event_type')='file.read';"
 DB_BEFORE=$(sqlite3 "$DB" "select count(*) from alerts where $RULE_FILTER;")

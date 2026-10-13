@@ -31,11 +31,11 @@
 <h3>1.1 snapshot 采集可信基线</h3>
 <p>递归扫描文件/目录，写入哈希、权限、属主；重复执行自动更新条目。</p>
 <pre><code># 采集 /etc 基线，自定义标签，排除缓存目录
-sudo ./baseline-guard baseline snapshot /etc --label release-202608 --exclude /etc/cache
+sudo ./diting baseline snapshot /etc --label release-202608 --exclude /etc/cache
 # 仅扫描一级目录，不递归
-sudo ./baseline-guard baseline snapshot /tmp/fimtest --no-recurse
+sudo ./diting baseline snapshot /tmp/fimtest --no-recurse
 # 指定独立数据库
-sudo ./baseline-guard baseline snapshot /tmp/fimtest --db /var/lib/baseline-guard/baseline.db</code></pre>
+sudo ./diting baseline snapshot /tmp/fimtest --db /var/lib/diting/baseline.db</code></pre>
 <table>
 <tr><th>参数</th><th>说明</th></tr>
 <tr><td>PATH</td><td>待采集文件/目录，支持多路径</td></tr>
@@ -46,9 +46,9 @@ sudo ./baseline-guard baseline snapshot /tmp/fimtest --db /var/lib/baseline-guar
 </table>
 
 <h3>1.2 list 基线清单查询</h3>
-<pre><code>sudo ./baseline-guard baseline list --path-filter "/tmp/fimtest/%"
-sudo ./baseline-guard baseline list --limit 50 --offset 50
-sudo ./baseline-guard baseline list --json > baseline_backup.json</code></pre>
+<pre><code>sudo ./diting baseline list --path-filter "/tmp/fimtest/%"
+sudo ./diting baseline list --limit 50 --offset 50
+sudo ./diting baseline list --json > baseline_backup.json</code></pre>
 <table>
 <tr><th>参数</th><th>说明</th></tr>
 <tr><td>--path-filter PATTERN</td><td>SQL 模糊匹配，% 为通配符</td></tr>
@@ -58,15 +58,15 @@ sudo ./baseline-guard baseline list --json > baseline_backup.json</code></pre>
 
 <h3>1.3 delete 删除基线记录</h3>
 <p>仅删除库内条目，<strong>不会删除磁盘真实文件</strong>。</p>
-<pre><code>sudo ./baseline-guard baseline delete /tmp/fimtest/newfile.txt
-sudo ./baseline-guard baseline delete /tmp/fimtest --recurse</code></pre>
+<pre><code>sudo ./diting baseline delete /tmp/fimtest/newfile.txt
+sudo ./diting baseline delete /tmp/fimtest --recurse</code></pre>
 
 <h3>1.4 check 离线基线全量核查</h3>
 <p>读取基线库与磁盘真实文件比对，识别 4 类风险；告警入库，支持钉钉推送与 HTML 报表。</p>
-<pre><code>sudo ./baseline-guard baseline check
-sudo ./baseline-guard baseline check --send-webhook --config config.yaml
-sudo ./baseline-guard baseline check --report_html baseline_report.html
-sudo ./baseline-guard baseline check --path-filter "/tmp/fimtest%"</code></pre>
+<pre><code>sudo ./diting baseline check
+sudo ./diting baseline check --send-webhook --config config.yaml
+sudo ./diting baseline check --report_html baseline_report.html
+sudo ./diting baseline check --path-filter "/tmp/fimtest%"</code></pre>
 <table>
 <tr><th>参数</th><th>说明</th></tr>
 <tr><td>--db PATH</td><td>指定基线数据库</td></tr>
@@ -87,21 +87,21 @@ sudo ./baseline-guard baseline check --path-filter "/tmp/fimtest%"</code></pre>
 <blockquote>关键规则：仅校验库内存在的基线文件；不跟随软链接；文件已偏离基线时，重复执行 chmod 至违规值仍会告警。</blockquote>
 
 <h3>1.5 clean 清理僵尸基线</h3>
-<pre><code>sudo ./baseline-guard baseline clean --dry-run   # 预演，仅打印
-sudo ./baseline-guard baseline clean             # 执行清理</code></pre>
+<pre><code>sudo ./diting baseline clean --dry-run   # 预演，仅打印
+sudo ./diting baseline clean             # 执行清理</code></pre>
 
 <h2>2. monitor 实时监控（双模式）</h2>
 <p>基于 eBPF LSM 捕获 write/chmod/chown/unlink 等文件操作。</p>
 <h3>2.1 纯 YAML 监控（无 --db）</h3>
-<pre><code>sudo ./baseline-guard monitor -c config.yaml</code></pre>
+<pre><code>sudo ./diting monitor -c config.yaml</code></pre>
 <p>仅按 <code>file_rules</code> 规则匹配路径事件，产出 <code>yaml-rule</code> 告警；不加载基线、不自检、无比对。</p>
 <h3>2.2 基线监控模式（携带 --db）</h3>
 <pre><code># 默认：启动先全量自检，再进入实时监控
-sudo ./baseline-guard monitor --db baseline.db -c config.yaml
+sudo ./diting monitor --db baseline.db -c config.yaml
 # 跳过开机自检
-sudo ./baseline-guard monitor --db baseline.db -c config.yaml --skip-boot-baseline-check
+sudo ./diting monitor --db baseline.db -c config.yaml --skip-boot-baseline-check
 # 可选兜底定时扫描（最小 60s，默认关闭）
-sudo ./baseline-guard monitor --db baseline.db -c config.yaml --baseline-scan-interval 300</code></pre>
+sudo ./diting monitor --db baseline.db -c config.yaml --baseline-scan-interval 300</code></pre>
 <table>
 <tr><th>参数</th><th>类型</th><th>默认</th><th>说明</th></tr>
 <tr><td>--skip-boot-baseline-check</td><td>布尔</td><td>关闭</td><td>跳过 monitor 启动自检</td></tr>
@@ -118,9 +118,9 @@ sudo ./baseline-guard monitor --db baseline.db -c config.yaml --baseline-scan-in
 <blockquote>架构优化点：移除默认 10s 高频轮询；仅开机一次自检兜底存量篡改，无后台持续扫描。</blockquote>
 
 <h2>3. 告警查询与报表</h2>
-<pre><code>sudo ./baseline-guard alerts                     # 最新 20 条告警
-sudo ./baseline-guard alerts --rule baseline     # 仅实时篡改告警
-sudo ./baseline-guard report --start 2026-08-01 --end 2026-08-15 -o full_audit.html</code></pre>
+<pre><code>sudo ./diting alerts                     # 最新 20 条告警
+sudo ./diting alerts --rule baseline     # 仅实时篡改告警
+sudo ./diting report --start 2026-08-01 --end 2026-08-15 -o full_audit.html</code></pre>
 
 <h2>4. 钉钉告警配置</h2>
 <pre><code># config.yaml
@@ -145,13 +145,13 @@ file_rules:                   # 纯 YAML 监控模式的文件规则
 <h2>6. 标准链路速查</h2>
 <pre><code>make
 mkdir -p /tmp/fimtest && echo "test" > /tmp/fimtest/test.txt
-sudo ./baseline-guard baseline snapshot /tmp/fimtest
-sudo ./baseline-guard baseline check
-sudo ./baseline-guard monitor --db baseline.db -c ./config.yaml
+sudo ./diting baseline snapshot /tmp/fimtest
+sudo ./diting baseline check
+sudo ./diting monitor --db baseline.db -c ./config.yaml
 # 另开终端模拟篡改：
 echo "modify" > /tmp/fimtest/test.txt && chmod 777 /tmp/fimtest/test.txt
-sudo ./baseline-guard alerts
-sudo ./baseline-guard report -o fim_audit_report.html</code></pre>
+sudo ./diting alerts
+sudo ./diting report -o fim_audit_report.html</code></pre>
 
 <p class="nav"><a href="index.html">← 返回帮助中心</a> · <a href="telemetry-guide.html">运行时遥测手册 →</a></p>
 </body>

@@ -33,7 +33,7 @@ echo "=== 前置检查 ==="
 if [ "$(id -u)" -ne 0 ]; then
     sudo -n true || { echo "FAIL: 无 sudo 凭据，请先 sudo -v 或用 sudo -S 喂密码"; exit 1; }
 fi
-[ -x "$ROOT_DIR/baseline-guard" ] || { echo "FAIL: baseline-guard 不存在"; exit 1; }
+[ -x "$ROOT_DIR/diting" ] || { echo "FAIL: diting 不存在"; exit 1; }
 docker info >/dev/null 2>&1 || echo "WARN: docker 不可用，case-04/06 将失败"
 
 echo "=== 准备用例文件 ==="
@@ -42,7 +42,7 @@ cat > "$WORK_DIR/chmod-target.conf" <<'EOF'
 sensitive_option=true
 EOF
 cat > "$WORK_DIR/protected-baseline.conf" <<'EOF'
-# baseline-guard 受保护基线文件（攻击用例库测试对象）
+# diting 受保护基线文件（攻击用例库测试对象）
 config_value=original
 EOF
 # W6 D1 凭据类用例的测试文件（必须在 monitor 启动前存在：inode 注册在启动时完成；
@@ -100,16 +100,16 @@ fi
 # 历史会话残留的 monitor 会同时消费事件、各自节流并落同一告警库，造成用例结果串扰
 # （W6 D2 实测：残留实例只有旧规则集，把 dsl.persist_container_docker_exec 的命中抢成
 #  示例规则 dsl.docker_cli_executed_inside_container，case-22 r2 假失败）
-stale=$(pgrep -f "baseline-guard monitor" | grep -v "^$$\$" || true)
+stale=$(pgrep -f "diting monitor" | grep -v "^$$\$" || true)
 if [ -n "$stale" ]; then
     echo "发现残留 monitor 进程（$stale），先停掉避免告警串扰"
     kill -TERM $stale 2>/dev/null; sleep 2
-    pgrep -f "baseline-guard monitor" >/dev/null && kill -KILL $stale 2>/dev/null
+    pgrep -f "diting monitor" >/dev/null && kill -KILL $stale 2>/dev/null
 fi
 if [ "$(id -u)" -eq 0 ]; then
-    bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/baseline-guard' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/attack-cases/config.yaml'" >"$LOG" 2>&1 &
+    bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/diting' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/attack-cases/config.yaml'" >"$LOG" 2>&1 &
 else
-    sudo -n bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/baseline-guard' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/attack-cases/config.yaml'" >"$LOG" 2>&1 &
+    sudo -n bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/diting' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/attack-cases/config.yaml'" >"$LOG" 2>&1 &
 fi
 
 ready=0

@@ -1,6 +1,6 @@
 # CIS 基线报告导出格式契约 v1
 
-`baseline-guard cis report` 自 schema_version=1 起支持 `--format text|json|html` 与 `--out <文件>`：
+`diting cis report` 自 schema_version=1 起支持 `--format text|json|html` 与 `--out <文件>`：
 
 - `--format text`（默认）：终端表格，行为与旧版一致；指定 `--out` 时表格写入文件。
 - `--format json`：输出本文档定义的 v1 契约 JSON；`--out` 缺省时写到 stdout。
@@ -14,7 +14,7 @@
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| tool | string | 固定 `"baseline-guard"` |
+| tool | string | 固定 `"diting"` |
 | report | string | 固定 `"cis-baseline"` |
 | schema_version | number | 固定 `1` |
 | generated_at | string | ISO8601 本地时间（`YYYY-MM-DDTHH:MM:SS`），报告生成时刻 |
@@ -52,7 +52,7 @@
 
 ```json
 {
-  "tool": "baseline-guard",
+  "tool": "diting",
   "report": "cis-baseline",
   "schema_version": 1,
   "generated_at": "2026-10-11T10:00:00",

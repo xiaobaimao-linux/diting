@@ -6,7 +6,7 @@
 
 - **M1-2 主机资产采集**：`asset_collector.*` 五类采集器（软件包 / 监听端口 / 运行进程 / 自启项 / 定时任务），
   单类失败降级记 warn 不影响其他类；`asset_collect.*` / `asset_list.*` 提供
-  `baseline-guard asset collect` 与 `baseline-guard asset list [--type T] [--json]` 子命令。
+  `diting asset collect` 与 `diting asset list [--type T] [--json]` 子命令。
   存储走 `src/storage/baseline_db.*` 的 `assets` 表（`UNIQUE(asset_type, name)`，
   重复采集仅刷新 `detail_json`/`last_seen`，为资产变更 diff 保留 `first_seen`）。
 - **W5 AI 资产采集**：

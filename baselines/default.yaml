@@ -7,7 +7,7 @@
 #   2. 将输出中的哈希值替换到下面对应的 PLACEHOLDER_* 位置
 #
 #   3. 运行检查:
-#      ./baseline-guard check -c baselines/system_critical.yaml
+#      ./diting check -c baselines/system_critical.yaml
 #
 # 字段说明:
 #   type:        检查类型列表 [file_permission, file_hash]

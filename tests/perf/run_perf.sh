@@ -16,9 +16,9 @@ tests/perf/bench_lat "$WORK/lat_target.txt" 10000 | tee "$RES/lat_off.txt"
 
 echo "=== [1] 启动 monitor ==="
 if [ "$(id -u)" -eq 0 ]; then
-    bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/baseline-guard' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config.yaml'" >"$WORK/monitor_perf.log" 2>&1 &
+    bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/diting' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config.yaml'" >"$WORK/monitor_perf.log" 2>&1 &
 else
-    sudo -n bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/baseline-guard' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config.yaml'" >"$WORK/monitor_perf.log" 2>&1 &
+    sudo -n bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/diting' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config.yaml'" >"$WORK/monitor_perf.log" 2>&1 &
 fi
 for i in $(seq 1 40); do
     grep -q "Monitoring started" "$WORK/monitor_perf.log" && break
@@ -34,12 +34,12 @@ tests/perf/bench_lat "$WORK/lat_target.txt" 10000 | tee "$RES/lat_on.txt"
 
 echo "=== [3] 吞吐压测 ==="
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
-$SUDO ./baseline-guard stats --drop > "$RES/drop_before.txt"
+$SUDO ./diting stats --drop > "$RES/drop_before.txt"
 EV_BEFORE=$(sqlite3 events.db "select count(*) from events where category='file' and json_extract(payload,'\$.file.path')='/tmp/bg-perf/tput_target.txt';")
 tests/perf/gen_load "$WORK/tput_target.txt" 300000 30 | tee "$RES/tput.txt"
 sleep 3   # 等批量 flush
 EV_AFTER=$(sqlite3 events.db "select count(*) from events where category='file' and json_extract(payload,'\$.file.path')='/tmp/bg-perf/tput_target.txt';")
-$SUDO ./baseline-guard stats --drop > "$RES/drop_after.txt"
+$SUDO ./diting stats --drop > "$RES/drop_after.txt"
 echo "events_before=$EV_BEFORE events_after=$EV_AFTER received=$((EV_AFTER-EV_BEFORE))" | tee "$RES/tput_events.txt"
 
 echo "=== [4] 常态 CPU（pidstat 5s × 60 = 5 分钟）==="

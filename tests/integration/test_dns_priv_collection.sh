@@ -20,7 +20,7 @@
 set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
-BIN="$PROJECT_DIR/baseline-guard"
+BIN="$PROJECT_DIR/diting"
 TMPDIR="/tmp/baseline_dnspriv_test_$$"
 MONITOR_LOG="$TMPDIR/monitor.log"
 

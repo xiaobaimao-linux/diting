@@ -34,7 +34,7 @@
 #define USER_STATS_SLOTS        16
 
 /* ── pinned map 路径（monitor pin，stats 命令读取）───────────────── */
-#define BG_PIN_DIR               "/sys/fs/bpf/baseline-guard"
+#define BG_PIN_DIR               "/sys/fs/bpf/diting"
 #define DROP_STATS_PIN_PATH      BG_PIN_DIR "/drop_stats"
 #define PROC_DROP_STATS_PIN_PATH BG_PIN_DIR "/proc_drop_stats"
 #define NET_DROP_STATS_PIN_PATH  BG_PIN_DIR "/net_drop_stats"

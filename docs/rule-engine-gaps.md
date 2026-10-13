@@ -104,8 +104,8 @@
 
 ## G16 多 monitor 实例并存时告警互相串扰（运行态，非 DSL 表达力）
 
-- **已修复（2026-10-12，W7 D1）**：`do_monitor` 入口加 flock 单实例锁（`src/common/instance_lock.cpp`，锁文件 `/var/run/baseline-guard-monitor.lock`），探针加载前获取；第二实例报错退出（提示含持锁 pid + 锁文件路径，exit 1）；正常退出与 kill -9 均由内核自动释放。
-- 原现状：多个 baseline-guard monitor 并存时各自加载规则快照、各自维护节流状态、消费同一批内核事件并落同一系统告警库（/var/lib/baseline-guard/baseline.db）。残留旧实例（规则集不同）会与新实例对同一事件产出不同 rule_id 的告警（W6 D2 实测：残留实例无 persist-container-docker-exec，命中落到示例规则 dsl.docker_cli_executed_inside_container，case-22 出现"同一动作有时命中 core 有时命中 examples"的假象）。
+- **已修复（2026-10-12，W7 D1）**：`do_monitor` 入口加 flock 单实例锁（`src/common/instance_lock.cpp`，锁文件 `/var/run/diting-monitor.lock`），探针加载前获取；第二实例报错退出（提示含持锁 pid + 锁文件路径，exit 1）；正常退出与 kill -9 均由内核自动释放。
+- 原现状：多个 diting monitor 并存时各自加载规则快照、各自维护节流状态、消费同一批内核事件并落同一系统告警库（/var/lib/diting/baseline.db）。残留旧实例（规则集不同）会与新实例对同一事件产出不同 rule_id 的告警（W6 D2 实测：残留实例无 persist-container-docker-exec，命中落到示例规则 dsl.docker_cli_executed_inside_container，case-22 出现"同一动作有时命中 core 有时命中 examples"的假象）。
 - 本次应对：run_all.sh 启动前清理残留 monitor 进程；文档记录该现象以免误判为规则/引擎不确定性。
 - v2 方向：monitor 启动时检测同 config 的存活实例（pidfile/flock 互斥）。
 
@@ -126,7 +126,7 @@
 - v2 草案（cmdline 采集落地后改写）：
   - stop-audit：`process.exe in (systemctl 路径) and process.cmdline contains (stop, disable) and process.cmdline contains (auditd, rsyslog, audit)`；
   - chattr：`process.exe = chattr 路径 and process.cmdline contains +i`；
-  - kill-security-tool：`process.exe in (pkill, killall) and process.cmdline contains (falco, edr, baseline-guard, osquery, auditd)`；
+  - kill-security-tool：`process.exe in (pkill, killall) and process.cmdline contains (falco, edr, diting, osquery, auditd)`；
   - mining-binary：`process.cmdline contains (--donate-level, stratum+tcp, stratum+ssl)`（与 exe 名 or 关系）。
 
 ## G21 exe 富化解析符号链接真实路径，argv[0] 双行为二进制按 exe 不可区分

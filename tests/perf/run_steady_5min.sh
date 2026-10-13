@@ -18,14 +18,14 @@ SINK_PID=$!
 sleep 0.5
 
 echo "=== 启动 monitor ($CFG) ==="
-./baseline-guard monitor --db baseline.db -c "$CFG" >"$LOG" 2>&1 &
+./diting monitor --db baseline.db -c "$CFG" >"$LOG" 2>&1 &
 MPID=$!
 for i in $(seq 1 40); do grep -q "Monitoring started" "$LOG" && break; sleep 0.5; done
 grep -q "Monitoring started" "$LOG" || { echo "monitor 启动失败"; tail -5 "$LOG"; kill "$SINK_PID" 2>/dev/null; exit 1; }
 echo "monitor pid=$MPID"
 
 echo "=== 资产采集周期任务（每 60s，共 5 次）==="
-( for i in $(seq 1 5); do ./baseline-guard asset collect -c "$CFG" >/dev/null 2>&1; sleep 60; done ) &
+( for i in $(seq 1 5); do ./diting asset collect -c "$CFG" >/dev/null 2>&1; sleep 60; done ) &
 APID=$!
 
 echo "=== 采样 5 分钟（15s × 20 点）==="

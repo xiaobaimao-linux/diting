@@ -5,7 +5,7 @@
 # set -e 移除：多个用例预期 check 返回非零，set -e 会误杀脚本
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
-BIN="$PROJECT_DIR/baseline-guard"
+BIN="$PROJECT_DIR/diting"
 TMPDIR="/tmp/baseline_test_$$"
 
 FAIL_COUNT=0

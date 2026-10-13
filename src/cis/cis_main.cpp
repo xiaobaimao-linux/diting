@@ -28,7 +28,7 @@ using cis::ExecOutcome;
 using cis::Verdict;
 using json = nlohmann::json;
 
-const std::string kDefaultDb = "/var/lib/baseline-guard/baseline.db";
+const std::string kDefaultDb = "/var/lib/diting/baseline.db";
 const std::string kDefaultDefs = "cis/cis-baseline-v1.yaml";
 
 struct CommonOptions {
@@ -44,7 +44,7 @@ std::string ToUpper(std::string value) {
 }
 
 void PrintCisUsage() {
-    std::cout << "Usage: baseline-guard cis <check|report> [options]\n"
+    std::cout << "Usage: diting cis <check|report> [options]\n"
               << "\n"
               << "Subcommands:\n"
               << "  check     run CIS baseline checks and persist results\n"

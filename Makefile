@@ -31,7 +31,7 @@ BPF_CFLAGS = -target bpf -D__TARGET_ARCH_x86 \
 
 LDFLAGS = -lbpf -lssl -lcrypto -lfmt -lyaml-cpp -lsqlite3 -lcurl
 
-TARGET = baseline-guard
+TARGET = diting
 
 BPF_SRC = bpf/lsm_file.bpf.c
 BPF_OBJ = bpf/lsm_file.bpf.o

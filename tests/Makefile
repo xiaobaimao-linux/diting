@@ -1,4 +1,4 @@
-# baseline-guard 测试 Makefile
+# diting 测试 Makefile
 
 CXX = g++
 CXXFLAGS = -std=c++17 -Wall -I../include -I../src -I../src/cli -I../src/cis -I../src/common -I../src/baseline \

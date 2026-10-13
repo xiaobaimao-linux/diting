@@ -13,7 +13,7 @@ cd "$ROOT_DIR"
 mkdir -p "$RES"
 
 echo "=== 启动 monitor ==="
-bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/baseline-guard' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config.yaml'" >"$WORK/profile_monitor.log" 2>&1 &
+bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/diting' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config.yaml'" >"$WORK/profile_monitor.log" 2>&1 &
 for i in $(seq 1 40); do
     grep -q "Monitoring started" "$WORK/profile_monitor.log" && break
     sleep 0.5
@@ -34,7 +34,7 @@ wait "$PIDSTAT_PID" "$PERF_PID" 2>/dev/null
 perf report -i "$RES/perf.data" --stdio --no-children 2>/dev/null | head -60 > "$RES/perf_report.txt"
 
 echo "=== 停止 monitor ==="
-./baseline-guard stats --drop > "$RES/profile_stats.txt" 2>/dev/null
+./diting stats --drop > "$RES/profile_stats.txt" 2>/dev/null
 kill -TERM "$MPID"
 for i in $(seq 1 40); do kill -0 "$MPID" 2>/dev/null || break; sleep 0.5; done
 echo "DONE"

@@ -1,7 +1,7 @@
 # W3 性能基线实测报告
 
 > 测量日期：2026-10-03 23:35 ~ 2026-10-04 00:15
-> 环境：Ubuntu 24.04.3 LTS，内核 7.0.0-30-generic（128 线程），baseline-guard v0.4（本仓库构建）
+> 环境：Ubuntu 24.04.3 LTS，内核 7.0.0-30-generic（128 线程），diting v0.4（本仓库构建）
 > 探针模式：LSM (ring buffer)，`stats --drop` 丢弃计数可用
 > 方法：对比法（同一 open+write+close 微基准，Agent 关/开各 10,000 次）；吞吐用自研 C 压测器（`tests/perf/gen_load.c`）；CPU 用 `pidstat -p <pid> 5 60`；RSS 取 `/proc/<pid>/status` VmRSS（monitor 就绪满 30 分钟）
 > 复现：`sudo bash tests/perf/run_perf.sh`（主测量）+ `sudo bash tests/perf/run_tput_10k.sh`（吞吐验收口径补测）

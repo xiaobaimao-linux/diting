@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BIN="$ROOT_DIR/baseline-guard"
-TMP_DIR="$(mktemp -d /tmp/baseline-guard-snapshot-test.XXXXXX)"
+BIN="$ROOT_DIR/diting"
+TMP_DIR="$(mktemp -d /tmp/diting-snapshot-test.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 mkdir -p "$TMP_DIR/root/sub" "$TMP_DIR/root/excluded"

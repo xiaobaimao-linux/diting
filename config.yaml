@@ -1,5 +1,5 @@
 # W2 全链路验收配置（基线监控模式 + 全量遥测）
-# 用法: sudo ./baseline-guard monitor --db baseline.db -c config.yaml
+# 用法: sudo ./diting monitor --db baseline.db -c config.yaml
 
 # ── 遥测开关 ──
 telemetry:

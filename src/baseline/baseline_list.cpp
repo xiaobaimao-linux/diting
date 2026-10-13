@@ -16,7 +16,7 @@ namespace fs = std::filesystem;
 using json = nlohmann::json;
 
 struct ListOptions {
-    std::string db_path = "/var/lib/baseline-guard/baseline.db";
+    std::string db_path = "/var/lib/diting/baseline.db";
     std::string path_filter;
     int limit = 0;       // 0 = 不限制
     int offset = 0;
@@ -25,7 +25,7 @@ struct ListOptions {
 };
 
 void PrintUsage() {
-    std::cout << "Usage: baseline-guard baseline list [options]\n"
+    std::cout << "Usage: diting baseline list [options]\n"
               << "List baseline entries from the SQLite database.\n"
               << "\n"
               << "Options:\n"
@@ -39,11 +39,11 @@ void PrintUsage() {
               << "  -h, --help               display this message\n"
               << "\n"
               << "Examples:\n"
-              << "  baseline-guard baseline list --limit 50\n"
-              << "  baseline-guard baseline list --path-filter \"/etc/ssh/%\"\n"
-              << "  baseline-guard baseline list --path-filter \"/etc/%\" --limit 50 --offset 50\n"
-              << "  baseline-guard baseline list --path-filter \"/etc/%\" --json > etc-baseline.json\n"
-              << "  baseline-guard baseline list --hash-only\n";
+              << "  diting baseline list --limit 50\n"
+              << "  diting baseline list --path-filter \"/etc/ssh/%\"\n"
+              << "  diting baseline list --path-filter \"/etc/%\" --limit 50 --offset 50\n"
+              << "  diting baseline list --path-filter \"/etc/%\" --json > etc-baseline.json\n"
+              << "  diting baseline list --hash-only\n";
 }
 
 bool ParseOptions(int argc, char* argv[], ListOptions& options, bool& help,

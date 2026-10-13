@@ -194,7 +194,7 @@ int do_check(const Config& config, BaselineDB& db) {
     spdlog::info("检查完成: {} 通过, {} 失败", pass_count, fail_count);
 
      // 生成报告
-    std::string report_path = "/var/log/baseline-guard/report-" + NowString() + ".html";
+    std::string report_path = "/var/log/diting/report-" + NowString() + ".html";
     ReportGenerator gen;
     if (gen.GenerateCheckHtml(results, report_path)) {
         spdlog::info("Report generated: {}", report_path);

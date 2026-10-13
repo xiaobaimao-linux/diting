@@ -1,4 +1,4 @@
-# baseline-guard 测试用例设计
+# diting 测试用例设计
 
 ## 一、单元测试 (Unit Tests)
 
@@ -48,21 +48,21 @@
 
 | 编号 | 用例名称 | 前置条件 | 操作步骤 | 预期结果 | 验证点 |
 |------|---------|---------|---------|---------|--------|
-| INT-001 | check INI全通过 | 准备test_pass.ini | `./baseline-guard check -c test_pass.ini` | exit=0 | `[service_start]`, `[rules_loaded]`, `[baseline_created]`, `[service_stop]` |
-| INT-002 | check INI有失败 | 准备test_fail.ini | `./baseline-guard check -c test_fail.ini` | exit=1 | `[FAIL]`日志，统计失败=1 |
-| INT-003 | check YAML格式 | 准备test_pass.yaml | `./baseline-guard check -c test_pass.yaml` | exit=0 | `[rules_loaded] format=yaml` |
-| INT-004 | check 无配置文件 | 不指定-c | `./baseline-guard check` | exit=1 | stderr: "config file required" |
-| INT-005 | check 配置文件不存在 | -c /nonexist | `./baseline-guard check -c /nonexist` | exit=0(空规则)或1 | 日志: 无法打开文件 |
+| INT-001 | check INI全通过 | 准备test_pass.ini | `./diting check -c test_pass.ini` | exit=0 | `[service_start]`, `[rules_loaded]`, `[baseline_created]`, `[service_stop]` |
+| INT-002 | check INI有失败 | 准备test_fail.ini | `./diting check -c test_fail.ini` | exit=1 | `[FAIL]`日志，统计失败=1 |
+| INT-003 | check YAML格式 | 准备test_pass.yaml | `./diting check -c test_pass.yaml` | exit=0 | `[rules_loaded] format=yaml` |
+| INT-004 | check 无配置文件 | 不指定-c | `./diting check` | exit=1 | stderr: "config file required" |
+| INT-005 | check 配置文件不存在 | -c /nonexist | `./diting check -c /nonexist` | exit=0(空规则)或1 | 日志: 无法打开文件 |
 
 ### 5. monitor命令集成测试
 
 | 编号 | 用例名称 | 前置条件 | 操作步骤 | 预期结果 | 验证点 |
 |------|---------|---------|---------|---------|--------|
-| INT-006 | monitor正常启动 | root权限，LSM可用 | `sudo ./baseline-guard monitor -c test.ini` | 输出Monitoring started | `[bpf_program_loaded]` |
+| INT-006 | monitor正常启动 | root权限，LSM可用 | `sudo ./diting monitor -c test.ini` | 输出Monitoring started | `[bpf_program_loaded]` |
 | INT-007 | monitor文件写入告警 | monitor运行中 | `echo x >> /monitored/file` | 输出[ALERT] | pid/comm/path正确 |
 | INT-008 | monitor hash不匹配 | monitor运行中，修改文件 | `echo changed >> /monitored/file` | 输出[ALERT] hash mismatch | expected(mode) vs current |
 | INT-009 | monitor BLOCK模式 | action=block | `echo x >> /blocked/file` | 写入被拒绝(EPERM) | `[ALERT]`, 文件内容不变 |
-| INT-010 | monitor非root启动 | 普通用户 | `./baseline-guard monitor` | 失败或权限错误 | `[bpf_program_error]` |
+| INT-010 | monitor非root启动 | 普通用户 | `./diting monitor` | 失败或权限错误 | `[bpf_program_error]` |
 | INT-011 | monitor SIGTERM退出 | monitor运行中 | `kill -TERM <pid>` | 优雅退出 | `[service_stop]` |
 | INT-012 | monitor SIGHUP重载 | monitor运行中 | `kill -HUP <pid>` | 重新加载配置 | `[rules_reload]` |
 
@@ -86,7 +86,7 @@
 
 | 编号 | 用例名称 | 前置条件 | 操作步骤 | 预期结果 |
 |------|---------|---------|---------|--------|
-| PERF-001 | 100规则check | 100个文件配置 | `./baseline-guard check` | 完成时间 < 5s |
+| PERF-001 | 100规则check | 100个文件配置 | `./diting check` | 完成时间 < 5s |
 | PERF-002 | 高频率文件写入 | monitor运行中 | 1000次/秒写入监控文件 | 无丢事件，内存稳定 |
 | PERF-003 | 大文件hash计算 | 1GB文件 | `compute_sha256` | 完成，不OOM |
 

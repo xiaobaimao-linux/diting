@@ -18,12 +18,12 @@
 namespace {
 
 struct CollectOptions {
-    std::string db_path = "/var/lib/baseline-guard/baseline.db";
+    std::string db_path = "/var/lib/diting/baseline.db";
     std::string config_path;  // 可选：读 asset.model_scan_dirs，缺省用内置默认目录
 };
 
 void PrintUsage() {
-    std::cout << "Usage: baseline-guard asset collect [options]\n"
+    std::cout << "Usage: diting asset collect [options]\n"
               << "Collect host assets (packages, listening ports, processes,\n"
               << "autostart entries, cron jobs, GPUs, model files) into the SQLite\n"
               << "assets table.\n"
@@ -35,8 +35,8 @@ void PrintUsage() {
               << "  -h, --help      display this message\n"
               << "\n"
               << "Examples:\n"
-              << "  baseline-guard asset collect\n"
-              << "  baseline-guard asset collect --db /tmp/assets.db -c config.yaml\n";
+              << "  diting asset collect\n"
+              << "  diting asset collect --db /tmp/assets.db -c config.yaml\n";
 }
 
 // 从 config.yaml 读 asset.model_scan_dirs；读取失败/缺节点记 warn 用默认目录

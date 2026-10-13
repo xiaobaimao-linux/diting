@@ -21,7 +21,7 @@ namespace {
 namespace fs = std::filesystem;
 
 struct SnapshotOptions {
-    std::string db_path = "/var/lib/baseline-guard/baseline.db";
+    std::string db_path = "/var/lib/diting/baseline.db";
     std::string label = "default";
     std::vector<std::string> paths;
     std::vector<std::string> excludes;
@@ -62,7 +62,7 @@ std::string Join(const std::vector<std::string>& values) {
 }
 
 void PrintUsage() {
-    std::cout << "Usage: baseline-guard baseline snapshot [options] PATH...\n"
+    std::cout << "Usage: diting baseline snapshot [options] PATH...\n"
               << "Options:\n"
               << "  --db PATH             SQLite database path\n"
               << "  --label NAME          snapshot label (default: default)\n"

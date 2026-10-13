@@ -7,14 +7,14 @@
 #   NS-003  nsenter -t 1 -m       → ns.setns（nstype 解码正确）
 #   NEG-001 telemetry.privilege=false 重复触发 → 零 ns.* 日志
 #
-# 前置：make 已编译出 ./baseline-guard；以 root 运行（sudo bash tests/integration/test_ns_collection.sh）。
+# 前置：make 已编译出 ./diting；以 root 运行（sudo bash tests/integration/test_ns_collection.sh）。
 # 可重复执行：唯一挂载点（PID 派生）+ 日志行窗口标记防串扰 + trap EXIT 清理（杀进程、umount、删临时文件）。
 set -u
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT" || exit 1
 
-BIN="$REPO_ROOT/baseline-guard"
+BIN="$REPO_ROOT/diting"
 SRC_CFG="$REPO_ROOT/baselines/default.yaml"
 
 if [[ $EUID -ne 0 ]]; then
@@ -41,7 +41,7 @@ ok()  { PASS=$((PASS + 1)); echo "PASS: $1"; }
 bad() { FAIL=$((FAIL + 1)); echo "FAIL: $1"; }
 
 cleanup() {
-    pkill -x baseline-guard 2>/dev/null
+    pkill -x diting 2>/dev/null
     if mountpoint -q "$MNT" 2>/dev/null; then
         umount "$MNT" 2>/dev/null
     fi
@@ -50,7 +50,7 @@ cleanup() {
 trap cleanup EXIT
 
 # 防上次失败运行残留的 monitor 干扰本次断言
-pkill -x baseline-guard 2>/dev/null
+pkill -x diting 2>/dev/null
 sleep 0.5
 
 # ── 配置准备：ON=default.yaml 打开 privilege；OFF=原样（privilege: false）──
@@ -93,7 +93,7 @@ start_monitor() {  # start_monitor CFG LOG
 }
 
 stop_monitor() {
-    pkill -x baseline-guard 2>/dev/null
+    pkill -x diting 2>/dev/null
     sleep 0.5
 }
 

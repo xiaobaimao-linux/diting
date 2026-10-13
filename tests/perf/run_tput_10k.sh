@@ -16,9 +16,9 @@ echo "=== 启动 monitor ==="
 # 监控目标是按 inode 注册的，目标文件必须先于 monitor 存在（/tmp 清过后本脚本曾全程 0 事件空跑）
 touch "$WORK/lat_target.txt" "$WORK/tput_target.txt"
 if [ "$(id -u)" -eq 0 ]; then
-    bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/baseline-guard' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config.yaml'" >"$WORK/monitor_10k.log" 2>&1 &
+    bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/diting' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config.yaml'" >"$WORK/monitor_10k.log" 2>&1 &
 else
-    sudo -n bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/baseline-guard' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config.yaml'" >"$WORK/monitor_10k.log" 2>&1 &
+    sudo -n bash -c "echo \$\$ > '$PIDFILE'; exec '$ROOT_DIR/diting' monitor --db '$ROOT_DIR/baseline.db' -c '$ROOT_DIR/tests/perf/config.yaml'" >"$WORK/monitor_10k.log" 2>&1 &
 fi
 for i in $(seq 1 40); do
     grep -q "Monitoring started" "$WORK/monitor_10k.log" && break
@@ -34,13 +34,13 @@ echo "RSS@steady: $(grep VmRSS /proc/$MPID/status)"
 
 echo "=== 10,000 事件/s 零丢失验证（30s 窗口）=="
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
-$SUDO ./baseline-guard stats --drop > "$RES/drop10k_before.txt"
+$SUDO ./diting stats --drop > "$RES/drop10k_before.txt"
 EV_BEFORE=$(sqlite3 events_perf.db "select count(*) from events where json_extract(payload,'\$.file.path')='/tmp/bg-perf/tput_target.txt';")
 echo "events_before=$EV_BEFORE"
 tests/perf/gen_load "$WORK/tput_target.txt" 300000 30 10000 | tee "$RES/tput10k.txt"
 sleep 3
 EV_AFTER=$(sqlite3 events_perf.db "select count(*) from events where json_extract(payload,'\$.file.path')='/tmp/bg-perf/tput_target.txt';")
-$SUDO ./baseline-guard stats --drop > "$RES/drop10k_after.txt"
+$SUDO ./diting stats --drop > "$RES/drop10k_after.txt"
 echo "events_before=$EV_BEFORE events_after=$EV_AFTER received=$((EV_AFTER-EV_BEFORE))" | tee "$RES/tput10k_events.txt"
 
 echo "=== 停止 monitor ==="

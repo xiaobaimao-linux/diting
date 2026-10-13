@@ -21,7 +21,7 @@ size_t WebhookNotifier::WriteCallback(void* contents, size_t size, size_t nmemb,
 
 bool WebhookNotifier::Send(const AlertEvent& alert) {
     json payload;
-    payload["source"]       = "baseline-guard";
+    payload["source"]       = "diting";
     payload["host"]         = host_;
     payload["rule_id"]      = alert.rule_id;
     payload["rule_name"]    = alert.rule_name;

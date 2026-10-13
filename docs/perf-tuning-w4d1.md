@@ -146,8 +146,8 @@ reserve_failed 1,114（0.037%）→ 0。
 
 - `make` 全量绿；`cd tests && make unit` 55 项全过。
 - FIM 冒烟：`test_snapshot.sh` 过；`test_check.sh` 16/16 过（需 sudo，
-  非 root 下 `/var/log/baseline-guard/` 不可写会 abort，为环境前置非本次
-  回归）；`baseline-guard alerts` 实时读出压测期 CRITICAL 告警，链路正常。
+  非 root 下 `/var/log/diting/` 不可写会 abort，为环境前置非本次
+  回归）；`diting alerts` 实时读出压测期 CRITICAL 告警，链路正常。
 - 计数器命名未动；内核按探针 emitted/reserve_failed/backpressure_drop/
   discarded 与用户态 bus/store 系列全部保留。
 
@@ -156,7 +156,7 @@ reserve_failed 1,114（0.037%）→ 0。
 ## R13（W4 D2）：四指标收口——内存 / CPU / 延迟归因 / 多规则缺陷
 
 日期：2026-10-06。对应 W4 D2 任务 1~4。测量机：8 核，kernel 7.0.0-30，
-`sudo ./baseline-guard monitor --db baseline.db -c {config.yaml|tests/perf/config.yaml}`。
+`sudo ./diting monitor --db baseline.db -c {config.yaml|tests/perf/config.yaml}`。
 注意：本机空闲环境噪声高于 W3 测量时（同口径复测 W3 CPU 基线 3.48% → 本机
 4.60%），本节所有"前 → 后"均为同机同口径对比。
 

@@ -24,15 +24,15 @@
 
 ```bash
 make                                                # 编译
-sudo ./baseline-guard baseline snapshot /etc        # 采集基线
-sudo ./baseline-guard baseline check                # 离线核查
-sudo ./baseline-guard monitor --db baseline.db -c config.yaml   # 实时监控
+sudo ./diting baseline snapshot /etc        # 采集基线
+sudo ./diting baseline check                # 离线核查
+sudo ./diting monitor --db baseline.db -c config.yaml   # 实时监控
 ```
 
 开启遥测（`baselines/default.yaml` 中 `telemetry.network/dns/privilege` 置 true）后：
 
 ```bash
-sudo ./baseline-guard monitor -c baselines/default.yaml
+sudo ./diting monitor -c baselines/default.yaml
 curl -s http://example.com -o /dev/null   # → network.connect
 dig example.com                            # → network.dns
 sudo -u nobody id                          # → priv.setuid

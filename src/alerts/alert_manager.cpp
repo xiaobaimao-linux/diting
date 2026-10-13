@@ -338,7 +338,7 @@ bool AlertManager::SendDingTalk(const AlertEvent& event) {
         md += "**事件类型**: " + event.event_type + "\n\n";
     }
     md += "**时间**: " + event.timestamp + "\n\n";
-    md += "> baseline-guard 自动检测";
+    md += "> diting 自动检测";
 
     json payload;
     payload["msgtype"] = "markdown";

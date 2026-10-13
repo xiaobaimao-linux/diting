@@ -29,7 +29,7 @@ AlertRecord Event(const std::string& id, const std::string& timestamp) {
 }  // namespace
 
 int main() {
-    const std::string db_path = "/tmp/baseline-guard-db-test-" + std::to_string(getpid()) + ".db";
+    const std::string db_path = "/tmp/diting-db-test-" + std::to_string(getpid()) + ".db";
     std::remove(db_path.c_str());
 
     {

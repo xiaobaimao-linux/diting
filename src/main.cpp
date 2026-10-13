@@ -48,7 +48,7 @@ std::string ToUpper(std::string value) {
 }
 
 void PrintAlertsUsage() {
-    printf("Usage: %s alerts [options]\n", "baseline-guard");
+    printf("Usage: %s alerts [options]\n", "diting");
     printf("Options:\n");
     printf("  -n, --limit <num>     display the latest N alerts (default: 20)\n");
     printf("  --today               only show alerts from today\n");
@@ -60,7 +60,7 @@ void PrintAlertsUsage() {
 }
 
 void PrintReportUsage() {
-    printf("Usage: %s report [--start <time>] [--end <time>] -o <file>\n", "baseline-guard");
+    printf("Usage: %s report [--start <time>] [--end <time>] -o <file>\n", "diting");
     printf("Options:\n");
     printf("  --start <time>        inclusive start time\n");
     printf("  --end <time>          inclusive end time\n");
@@ -68,7 +68,7 @@ void PrintReportUsage() {
     printf("Time formats:\n");
     printf("  YYYY-MM-DD or YYYY-MM-DD HH:MM:SS (T may replace the space)\n");
     printf("Example:\n");
-    printf("  baseline-guard report --start 2026-08-01 --end 2026-08-10 -o events.html\n");
+    printf("  diting report --start 2026-08-01 --end 2026-08-10 -o events.html\n");
 }
 
 
@@ -428,7 +428,7 @@ int main(int argc, char *argv[]) {
                 } else if (subarg == "--report_html") {
                     fprintf(
                         stderr,
-                        "Error: --report_html has moved; use baseline-guard report -o <file>\n");
+                        "Error: --report_html has moved; use diting report -o <file>\n");
                     return 1;
                 } else if (subarg.rfind("--rule=", 0) == 0) {
                     rule = subarg.substr(std::string("--rule=").size());
@@ -514,7 +514,7 @@ int main(int argc, char *argv[]) {
                 } else if (subarg == "--skip-boot-baseline-check") {
                     skip_boot_check = true;
                 } else if (subarg == "-h" || subarg == "--help") {
-                    printf("Usage: baseline-guard monitor [options]\n");
+                    printf("Usage: diting monitor [options]\n");
                     printf("Options:\n");
                     printf("  --db PATH    SQLite baseline DB path (enables baseline comparison)\n");
                     printf("  --skip-boot-baseline-check   skip full baseline check at startup\n");
@@ -540,8 +540,8 @@ int main(int argc, char *argv[]) {
                 }
 
                 // 直接执行基线实时监控
-                Logger::init("/var/log/baseline-guard");
-                spdlog::info("[service_start] baseline-guard monitor --db {} starting, pid={}",
+                Logger::init("/var/log/diting");
+                spdlog::info("[service_start] diting monitor --db {} starting, pid={}",
                              monitor_db_path, getpid());
 
                 Config config;
@@ -612,8 +612,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    Logger::init("/var/log/baseline-guard");
-    spdlog::info("[service_start] baseline-guard starting, pid={}", getpid());
+    Logger::init("/var/log/diting");
+    spdlog::info("[service_start] diting starting, pid={}", getpid());
 
     Config config;
     if (!ends_with(config_path, ".yaml") && !ends_with(config_path, ".yml")) {
