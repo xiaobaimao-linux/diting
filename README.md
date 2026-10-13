@@ -90,12 +90,6 @@ C++17 · libbpf CO-RE（LSM BPF / kprobe / tracepoint）· yaml-cpp · SQLite（
 
 ## 商业服务与许可证
 
-企业定制与等保交付服务：邮箱 kabc005009@163.com · 微信 houduankf · [知乎](https://zhihu.com/people/q1w2e3r4t5y6-86)
+企业定制与等保交付服务：邮箱 kabc005009@163.com · 微信 houduankf · [知乎](https://www.zhihu.com/people/xiaobaimao-linux)
 
-本项目采用 [Business Source License 1.1](LICENSE)（BSL 1.1），商标见 [TRADEMARK.md](TRADEMARK.md)：
-
-| 使用场景 | 是否免费 |
-|---|---|
-| 个人学习、研究、开发测试、内部评估、参与贡献 | ✅ 免费 |
-| 公司生产环境部署 / 集成进对外销售产品 | ❌ 需购买商业许可 |
-| 发布满 3 年的历史版本 | ✅ 自动转为 GPLv2+ |
+本项目采用 [Apache License 2.0](LICENSE)，名称与 Logo 的权利保留说明见 [docs/brand.md](docs/brand.md)。
