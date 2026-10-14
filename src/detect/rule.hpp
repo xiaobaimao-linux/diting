@@ -20,6 +20,7 @@ enum class FieldId {
     process_gid,
     process_comm,
     process_exe,
+    process_cmdline, // process.cmdline（仅 exec 填充，其余按空串）
     ancestor_pid,
     ancestor_comm,
     ancestor_exe, // process.ancestors[].*

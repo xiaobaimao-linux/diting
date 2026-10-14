@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string>
 
 #include <nlohmann/json.hpp>
 
@@ -26,6 +27,10 @@ int handle_process_event(void *ctx, void *data, size_t data_sz);
 // 祖先链由 Enricher 追加）。exe 用 /proc 解析后的真实路径。
 void render_process_exec_event(const struct proc_event& evt, struct EventRecord& rec,
                                nlohmann::json& out);
+
+// proc_event.cmdline（NUL 分隔 argv 原始字节，尾部零填充）→ 空格拼接字符串；
+// 尾部 NUL 截掉，空 cmdline 返回空串。渲染与规则求值共用同一拼接语义。
+std::string proc_cmdline_join(const char *cmdline, size_t cap);
 
 // 停止并释放进程遥测资源（rb 可为 nullptr）
 void process_monitor_stop(struct proc_watch_bpf *skel, struct ring_buffer *rb);

@@ -39,6 +39,10 @@
 | UTL-003 | mode转字符串 | mode=0644 | `mode_to_string(0644)` | "rw-r--r--" |
 | UTL-004 | mode转字符串-全权限 | mode=0777 | `mode_to_string(0777)` | "rwxrwxrwx" |
 | UTL-005 | mode转字符串-无权限 | mode=0000 | `mode_to_string(0000)` | "---------" |
+| UTL-006 | mode转字符串-sticky位 | mode=01777 | `mode_to_string(01777)` | "rwxrwxrwt" |
+| UTL-007 | mode转字符串-setgid位 | mode=02755 | `mode_to_string(02755)` | "rwxr-sr-x" |
+| UTL-008 | mode转字符串-setuid位 | mode=04755 | `mode_to_string(04755)` | "rwsr-xr-x" |
+| UTL-009 | mode转字符串-setuid无x | mode=04644 | `mode_to_string(04644)` | "rwSr--r--"（大写 S） |
 
 ---
 

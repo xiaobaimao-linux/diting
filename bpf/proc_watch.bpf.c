@@ -129,6 +129,9 @@ int tp_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx)
 /* ── exec：进程映像替换 ──────────────────────────────────────────
  * exe 尽力读 tracepoint filename（__data_loc 动态偏移，未解析相对路径），
  * 真实路径由消费线程读 /proc/<pid>/exe 解析；失败保留 memset 的空串。
+ * cmdline：tracepoint 触发时新 mm 已激活、argv 已拷入用户栈，读
+ * mm->arg_start..arg_end 原始字节（NUL 分隔，≤255 字节截断，保留尾部 NUL，
+ * 空格拼接由消费线程负责）；mm 为空（内核线程）或区间非法时留空。
  */
 SEC("tracepoint/sched/sched_process_exec")
 int tp_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx)
@@ -147,6 +150,22 @@ int tp_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx)
     off = ctx->__data_loc_filename & 0xFFFF;
     if (off)
         bpf_probe_read_kernel_str(e->exe, sizeof(e->exe), (void *)ctx + off);
+
+    /* argv：arg_start..arg_end 为本进程用户内存，bpf_probe_read_user 读取 */
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    struct mm_struct *mm = BPF_CORE_READ(task, mm);
+    if (mm) {
+        unsigned long arg_start = BPF_CORE_READ(mm, arg_start);
+        unsigned long arg_end   = BPF_CORE_READ(mm, arg_end);
+        if (arg_end > arg_start) {
+            __u32 len = (__u32)(arg_end - arg_start);
+            if (len > 255)
+                len = 255;   /* 真截断（min 语义）；紧跟的 mask 给 verifier 静态上界 */
+            len &= 0xff;
+            if (len > 0)
+                bpf_probe_read_user(e->cmdline, len, (void *)arg_start);
+        }
+    }
 
     bpf_ringbuf_submit(e, 0);
     inc_proc_emitted_count();

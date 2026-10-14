@@ -13,6 +13,8 @@
 // start_time 为 task_struct.start_time（纳秒，CLOCK_MONOTONIC 域）：
 // exec/exit 取当前任务可靠填充；fork 侧子任务 start_time 无法在内核侧
 // 便捷获得，填 0，由消费线程读 /proc/<pid>/stat 补齐（尽力）。
+// cmdline 仅 exec 事件填充（mm->arg_start..arg_end 原始 NUL 分隔字节，
+// ≤255 字节截断，渲染为空格拼接由用户态负责）；fork/exit 保持空。
 struct proc_event {
     unsigned long long ts_ns;
     unsigned int pid;            // fork=子进程  exec/exit=当前进程
@@ -24,6 +26,7 @@ struct proc_event {
     unsigned char pad[7];
     char comm[16];               // 不保证 NUL 结尾
     char exe[256];               // exec 尽力（tracepoint filename），其余为空
+    char cmdline[256];           // exec：NUL 分隔 argv 原始字节（≤255），其余为空
 };
 
 #endif

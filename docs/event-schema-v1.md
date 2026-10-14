@@ -34,7 +34,7 @@ events 表索引列（不在 payload 内，但可用于规则预过滤）：`cat
 | `file.read` | open 读（内核 MAY_READ 归一化，lsm_file.bpf.c:44-46） | `file.path`(string 完整路径)、`file.ino`(u64)、`file.mask`(u64)、`file.action`(string: allow/alert/block/kill/throttle) |
 | `file.write` | open 写 | 同上 |
 | `file.access` | 其它访问 | 同上 |
-| `file.chmod` | 权限变更 | 同上 + `file.new_mode`(string，9 字符 rwx 符号串，如 "rwxr-xr-x"；setuid/setgid/sticky 高位渲染时被 &0777 掩掉，无 s/t 表达，见 rule-engine-gaps.md G11) |
+| `file.chmod` | 权限变更 | 同上 + `file.new_mode`(string，9 字符 ls 语义 rwx 符号串，如 "rwxr-xr-x"；含 s/S/t/T 高位——setuid/setgid 位在执行位渲染为 s（有 x）/S（无 x），sticky 位渲染为 t/T，如 04755→"rwsr-xr-x"（W8 修复 G11，2026-10-14）) |
 | `file.chown` | 属主变更 | 同上 + `file.new_uid`(u64)、`file.new_gid`(u64) |
 | `file.unlink` | 删除 | 同 file.read |
 | `file.rename` | 重命名 | 同 file.read |
@@ -46,7 +46,12 @@ events 表索引列（不在 payload 内，但可用于规则预过滤）：`cat
 
 | event_type | 负载字段 |
 |---|---|
-| `process.exec` | `process.*` 公共字段（含 exe）；**无 argv/cmdline**（已知边界，dev-log-w2.md:70） |
+| `process.exec` | `process.*` 公共字段（含 exe）+ `process.cmdline`(string，exec 命令行：NUL 分隔 argv 空格拼接，上限 255 字节、超长截断；内核读 mm->arg_start..arg_end，读取失败/为空时该键省略；非法/截断 UTF-8 序列替换为 U+FFFD；fork/exit 不采集)（W8 修复 G19，2026-10-14） |
+
+**exe/comm 语义定型（W8 G21，2026-10-14：真实身份看 exe，调用行为看 comm）**：
+
+- `process.exe`：exec 时经 `/proc/pid/exe` readlink 解析的**真实路径**（符号链接被解析）——`/usr/bin/pkill` 是指向 pgrep 的符号链接，pkill 执行时 exe 渲染为 `/usr/bin/pgrep`；busybox/toybox 家族同款。
+- `process.comm`：内核 comm（argv[0] 前 15 字符），反映**调用名/链接名**——pkill vs pgrep 只读查询、busybox 家族等多行为二进制按 comm 区分调用行为（comm 可被 execve argv[0] 伪造，是刻意的检出/噪声权衡）。
 
 fork/exit 只维护进程树，不落库、不可被规则匹配。
 
@@ -92,7 +97,7 @@ fork/exit 只维护进程树，不落库、不可被规则匹配。
 
 ## 4. 已知字段边界（v1）
 
-- 无进程 cmdline/argv（exec 不采集）。
+- 进程 cmdline 仅 exec 事件采集（前 255 字节，超长截断；W8 修复 G19，2026-10-14），fork/exit 无。
 - 祖先链每层无 uid/gid/args。
 - 无容器 name/image。
 - file 事件内核侧 `comm` 上限 16 字符，长进程名被截断；匹配进程身份优先用 `process.exe`。

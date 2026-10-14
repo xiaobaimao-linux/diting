@@ -54,10 +54,11 @@ W7 D1 起文件路径自动登记：condition 中 `file.path` 的 `=`/`in` 字�
 |---|---|---|
 | `event_type` | string | file.read / file.write / file.chmod / file.chown / file.unlink / file.rename / file.mmap / process.exec / network.connect / network.accept / network.bind / network.dns / priv.setuid / priv.setgid / priv.capset / priv.ptrace / priv.module_load / ns.mount / ns.unshare / ns.setns |
 | `process.pid` / `process.ppid` / `process.uid` / `process.gid` | number | |
-| `process.comm` / `process.exe` | string | comm ≤16 字符可能截断，身份匹配优先 exe |
+| `process.comm` / `process.exe` | string | exe 为 /proc/pid/exe 解析后真实路径（符号链接被解析：pkill 调用渲染为 /usr/bin/pgrep）；comm 为内核 comm（argv[0] 前 15 字符，可能截断），反映调用名/链接名——多行为二进制（pkill vs pgrep 只读查询、busybox 家族）按 comm 区分（W8 G21 定型，2026-10-14：真实身份看 exe、调用行为看 comm；comm 可伪造，身份匹配优先 exe） |
+| `process.cmdline` | string | exec 命令行（NUL 分隔 argv 空格拼接，≤255 字节截断）；仅 process.exec 填充，其余事件按空串（W8 修复 G19，2026-10-14） |
 | `process.ancestors[].pid` / `process.ancestors[].comm` / `process.ancestors[].exe` | string/number | `[]` 表示祖先链任一元素（≤8 层，自近及远） |
 | `container.container_id` | string | 宿主机进程缺失，按空串处理 |
-| `file.path` / `file.action` / `file.new_mode` | string | file.new_mode 为 9 字符 rwx 符号串，如 `file.new_mode = rwxr-xr-x`；setuid/setgid/sticky 高位被 &0777 掩掉，无 s/t 形式（04755 与 0755 均渲染为 rwxr-xr-x，SUID 不可判定，见 G11） |
+| `file.path` / `file.action` / `file.new_mode` | string | file.new_mode 为 9 字符 ls 语义 rwx 符号串，含 s/S/t/T 高位（W8 修复 G11，2026-10-14），如 `file.new_mode = rwxr-xr-x`、04755 渲染为 `rwsr-xr-x`（SUID 可判定）；'s'/'S' 只可能来自 suid/sgid 位 |
 | `file.ino` / `file.mask` / `file.new_uid` / `file.new_gid` | number | |
 | `network.sip` / `network.dip` | string | 点分文本 |
 | `network.family` / `network.protocol` / `network.sport` / `network.dport` | number | protocol: 6=TCP 17=UDP |

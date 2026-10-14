@@ -31,6 +31,70 @@ static std::string comm_to_string(const char *comm)
     return std::string(buf);
 }
 
+// 严格 UTF-8 清洗：非法/截断序列逐字节替换为 U+FFFD。
+// cmdline 是内核原始字节：255 字节截断可能切断多字节序列，argv 本身也可含
+// 任意字节；nlohmann 赋值非法 UTF-8 直接抛 type_error.316（W8 G21 实测
+// monitor 被一条截断 cmdline 打挂），进 JSON/规则匹配前必须清洗。
+// 校验口径与 nlohmann DFA 一致：拒绝 C0/C1 过短编码、E0/ED/F0/F4 的受限
+// 第二字节、>U+10FFFF 序列。
+static void sanitize_utf8(std::string& s)
+{
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size();) {
+        const auto c = static_cast<unsigned char>(s[i]);
+        if (c < 0x80) {
+            out.push_back(static_cast<char>(c));
+            ++i;
+            continue;
+        }
+        int len = 0;
+        unsigned char lo = 0x80, hi = 0xBF;   // 第二字节合法区间
+        if (c >= 0xC2 && c <= 0xDF)      len = 2;
+        else if (c == 0xE0) { len = 3; lo = 0xA0; }
+        else if (c == 0xED) { len = 3; hi = 0x9F; }
+        else if (c >= 0xE1 && c <= 0xEF) len = 3;
+        else if (c == 0xF0) { len = 4; lo = 0x90; }
+        else if (c == 0xF4) { len = 4; hi = 0x8F; }
+        else if (c >= 0xF1 && c <= 0xF3) len = 4;
+        bool ok = len > 0 && i + static_cast<size_t>(len) <= s.size();
+        if (ok) {
+            const auto b1 = static_cast<unsigned char>(s[i + 1]);
+            ok = b1 >= lo && b1 <= hi;
+            for (int k = 2; ok && k < len; ++k) {
+                const auto bk = static_cast<unsigned char>(s[i + k]);
+                ok = bk >= 0x80 && bk <= 0xBF;
+            }
+        }
+        if (ok) {
+            out.append(s, i, static_cast<size_t>(len));
+            i += static_cast<size_t>(len);
+        } else {
+            out += "\xEF\xBF\xBD";
+            ++i;
+        }
+    }
+    s.swap(out);
+}
+
+// cmdline 为 NUL 分隔的 argv 原始字节（内核侧 ≤255 字节截断，缓冲区尾部
+// 零填充）：先按"最后一个非零字节"定有效长度（截掉尾部 NUL 与零填充），
+// 再把区间内 NUL 分隔符替换为空格，最后做 UTF-8 清洗（截断点可切断
+// 多字节序列，见 sanitize_utf8 注释）。
+std::string proc_cmdline_join(const char *cmdline, size_t cap)
+{
+    size_t n = cap;
+    while (n > 0 && cmdline[n - 1] == '\0')
+        --n;
+    std::string out(cmdline, n);
+    for (size_t i = 0; i < n; ++i) {
+        if (out[i] == '\0')
+            out[i] = ' ';
+    }
+    sanitize_utf8(out);
+    return out;
+}
+
 // ── 消费线程渲染：proc_event(exec) -> 落库 JSON 负载 ─────────────────
 // exe 优先用 /proc 解析的真实路径（tracepoint filename 可能是相对路径），
 // 解析失败回退事件自带的 filename。祖先链由 Enricher 后续追加。
@@ -49,6 +113,9 @@ void render_process_exec_event(const struct proc_event& evt, struct EventRecord&
     proc["comm"] = comm_to_string(evt.comm);
     if (!exe.empty())
         proc["exe"] = exe;
+    const std::string cmdline = proc_cmdline_join(evt.cmdline, sizeof(evt.cmdline));
+    if (!cmdline.empty())
+        proc["cmdline"] = cmdline;
 
     json j;
     j["event_type"] = "process.exec";

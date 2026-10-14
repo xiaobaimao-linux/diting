@@ -45,6 +45,10 @@ bool resolve_scalar(const EventView &ev, FieldId id, FieldVal &out) {
         out.has = true;
         out.str = ev.exe;
         return true;
+    case FieldId::process_cmdline:
+        out.has = true;
+        out.str = ev.cmdline;
+        return true;
     case FieldId::container_id:
         out.has = true;
         out.str = ev.container_id;

@@ -52,6 +52,7 @@ bool FieldIdFromPath(const std::string &path, FieldId &out) {
         {"process.gid", FieldId::process_gid},
         {"process.comm", FieldId::process_comm},
         {"process.exe", FieldId::process_exe},
+        {"process.cmdline", FieldId::process_cmdline},
         {"process.ancestors[].pid", FieldId::ancestor_pid},
         {"process.ancestors[].comm", FieldId::ancestor_comm},
         {"process.ancestors[].exe", FieldId::ancestor_exe},

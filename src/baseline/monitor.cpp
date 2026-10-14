@@ -1309,7 +1309,7 @@ static void render_file_payload(const struct event& e, struct EventRecord& rec,
     }
     if (e.event_type == EVENT_CHMOD) {
         out += ",\"new_mode\":";
-        append_json_string(out, mode_to_string(e.new_mode & 0777));
+        append_json_string(out, mode_to_string(e.new_mode & 07777));
     }
     if (e.event_type == EVENT_CHOWN) {
         out += ",\"new_uid\":";
@@ -1450,7 +1450,7 @@ static void eval_rules_on_file_event(const struct event& fe, const FileActorCont
     const std::string action = actionToString(static_cast<Action>(fe.action));
     std::string new_mode;
     if (fe.event_type == EVENT_CHMOD)
-        new_mode = mode_to_string(fe.new_mode & 0777);
+        new_mode = mode_to_string(fe.new_mode & 07777);
 
     detect::EventView view;
     view.event_type = file_event_kind(fe);
@@ -1516,6 +1516,10 @@ static void eval_rules_on_exec_event(const struct proc_event& pe, TelemetryRunti
     view.comm = std::string_view(pe.comm, strnlen(pe.comm, sizeof(pe.comm)));
     view.exe  = exe;
     view.container_id = container_id;
+    // cmdline：NUL 分隔原始字节 → 空格拼接（与落库渲染同一语义）；
+    // 局部串存活至本函数结束，覆盖 Evaluate 与 output 模板插值
+    const std::string cmdline = proc_cmdline_join(pe.cmdline, sizeof(pe.cmdline));
+    view.cmdline = cmdline;
     const json anc = rt->enricher->ancestors_of(pe.pid, pe.ppid);
     fill_ancestors_view(anc, view.ancestors);
 
@@ -1729,6 +1733,18 @@ static void route_event(EventRecord& rec, TelemetryRuntime* rt) {
     }
 }
 
+// 事件内容（cmdline/comm/路径）是攻击者可控的原始字节，渲染/富化任何一环
+// 抛异常（如 nlohmann 非法 UTF-8 type_error）都不能终止消费线程——
+// W8 G21 实测一条截断 UTF-8 的 cmdline 把 monitor 整体打挂。单事件跳过。
+static void route_event_guarded(EventRecord& rec, TelemetryRuntime* rt) {
+    try {
+        route_event(rec, rt);
+    } catch (const std::exception& ex) {
+        spdlog::error("[consumer] 事件渲染失败已跳过 (category={} pid={}): {}",
+                      static_cast<int>(rec.category), rec.pid, ex.what());
+    }
+}
+
 // 消费线程主循环：严格先拉 hi 再拉 lo；驱动落库批量刷新、延迟统计（60s）、
 // drop 计数日志（30s）、tombstone sweep（60s）、告警 retention（3600s）。
 static void telemetry_consumer_main(TelemetryRuntime* rt) {
@@ -1750,11 +1766,11 @@ static void telemetry_consumer_main(TelemetryRuntime* rt) {
         bool did_work = false;
         EventRecord rec;
         while (rt->bus->try_pop_hi(rec)) {
-            route_event(rec, rt);
+            route_event_guarded(rec, rt);
             did_work = true;
         }
         while (rt->bus->try_pop_lo(rec)) {
-            route_event(rec, rt);
+            route_event_guarded(rec, rt);
             did_work = true;
         }
         if (did_work)
@@ -1831,9 +1847,9 @@ static void telemetry_consumer_main(TelemetryRuntime* rt) {
     // 退出前 drain 残余事件并落库收尾
     EventRecord rec;
     while (rt->bus->try_pop_hi(rec))
-        route_event(rec, rt);
+        route_event_guarded(rec, rt);
     while (rt->bus->try_pop_lo(rec))
-        route_event(rec, rt);
+        route_event_guarded(rec, rt);
     if (rt->store)
         rt->store->Flush();
     // drain + 落库收尾后最终同步一次计数器（对账读取的最终状态）

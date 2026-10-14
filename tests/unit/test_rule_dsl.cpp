@@ -144,7 +144,7 @@ void test_unknown_field() {
     std::vector<Rule> rules;
     std::string err;
     const bool ok = load_single("bad_field", "bad_field.yaml",
-                                rule_yaml("R1", "process.cmdline = /bin/sh"), rules, err);
+                                rule_yaml("R1", "process.argv = /bin/sh"), rules, err);
     assert(!ok);
     assert(err.find("bad_field.yaml:3:") != std::string::npos);
     assert(err.find("未知字段") != std::string::npos);
@@ -424,7 +424,7 @@ void test_template_unknown_field() {
     std::string err;
     const bool ok = load_single(
         "badtmpl", "badtmpl.yaml",
-        rule_yaml("T1", "event_type = file.read", "high", "x=%process.cmdline"), rules, err);
+        rule_yaml("T1", "event_type = file.read", "high", "x=%process.argv"), rules, err);
     assert(!ok);
     assert(err.find("badtmpl.yaml:4:") != std::string::npos);
     assert(err.find("未知字段") != std::string::npos);
@@ -601,6 +601,47 @@ void test_bad_file_fails_whole_load() {
     printf("[PASS] RDSL-022: 坏规则文件整体失败，err 含文件名+原因（%s）\n", err.c_str());
 }
 
+// ====== RDSL-023: process.cmdline 解析/求值/插值（W8 G19：exec cmdline 采集）======
+void test_process_cmdline() {
+    std::vector<Rule> rules;
+    std::string err;
+    // contains 命中/不命中 + or 链 + output 插值
+    assert(load_single("cmdline", "cmdline.yaml",
+                       rule_yaml("CMD1",
+                                 "event_type = process.exec and (process.cmdline contains stop or "
+                                 "process.cmdline contains disable) and process.cmdline contains auditd",
+                                 "high", "cl=%process.cmdline"),
+                       rules, err));
+    auto engine = build_engine(std::move(rules));
+    MatchResult m;
+
+    // 命中：stop auditd
+    EventView v = base_view("process.exec");
+    v.exe = "/usr/bin/systemctl";
+    v.cmdline = "systemctl stop auditd";
+    assert(engine.Evaluate(v, m));
+    assert(m.rule->name == "CMD1");
+    assert(m.output == "cl=systemctl stop auditd");
+
+    // 命中：disable auditd（or 链另一支）
+    v.cmdline = "systemctl disable auditd";
+    assert(engine.Evaluate(v, m));
+
+    // 不命中：status auditd（动作词不含 stop/disable）
+    v.cmdline = "systemctl status auditd";
+    assert(!engine.Evaluate(v, m));
+
+    // 不命中：stop 其它服务（目标不含 auditd）
+    v.cmdline = "systemctl stop nginx";
+    assert(!engine.Evaluate(v, m));
+
+    // 非 exec 事件缺失按空串：contains 即 false（且事件类型预过滤本就不进桶）
+    v = base_view("file.read");
+    v.has_file = true;
+    assert(!engine.Evaluate(v, m));
+    printf("[PASS] RDSL-023: process.cmdline contains 命中/不命中/缺失空串/插值\n");
+}
+
 int main() {
     test_examples_parse();
     test_examples_ast();
@@ -625,6 +666,7 @@ int main() {
     test_extract_file_path_refs();
     test_classify_path_ref();
     test_bad_file_fails_whole_load();
+    test_process_cmdline();
     printf("[PASS] ALL test_rule_dsl done\n");
     return 0;
 }

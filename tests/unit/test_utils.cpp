@@ -69,10 +69,14 @@ void test_mode_string() {
     assert(mode_to_string(0000) == "---------");
     assert(mode_to_string(0755) == "rwxr-xr-x");
     assert(mode_to_string(0400) == "r--------");
-    // 当前实现仅输出 rwx 9 位权限串，不处理 sticky/setuid/setgid 特殊位
-    assert(mode_to_string(01777) == "rwxrwxrwx"); // sticky bit 不特殊显示
-    assert(mode_to_string(02755) == "rwxr-xr-x"); // setgid 不特殊显示
-    assert(mode_to_string(04755) == "rwxr-xr-x"); // setuid 不特殊显示
+    // 无高位时输出与纯 rwx 逐字节一致（不回归）
+    assert(mode_to_string(0755) == "rwxr-xr-x");
+    assert(mode_to_string(0644) == "rw-r--r--");
+    // 高位 ls 语义（W8 G11 修复）：suid→s/S，sgid→s/S，sticky→t/T
+    assert(mode_to_string(01777) == "rwxrwxrwt"); // sticky + x
+    assert(mode_to_string(02755) == "rwxr-sr-x"); // setgid + x
+    assert(mode_to_string(04755) == "rwsr-xr-x"); // setuid + x
+    assert(mode_to_string(04644) == "rwSr--r--"); // setuid 无 x → 大写 S
     printf("  [PASS] UTL-005~012: mode转字符串全覆盖\n");
 }
 

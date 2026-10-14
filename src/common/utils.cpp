@@ -8,6 +8,8 @@
 #include <openssl/evp.h>
 #include <sstream>
 
+// 9 字符 rwx 符号串，ls 语义高位：user 执行位 S_ISUID→s（有 x）/S（无 x），
+// group 执行位 S_ISGID→s/S，other 执行位 S_ISVTX→t/T；无高位时输出与纯 rwx 逐字节一致
 string mode_to_string(mode_t mode) {
     char buf[10] = {0};
     buf[0] = (mode & S_IRUSR) ? 'r' : '-';
@@ -19,6 +21,9 @@ string mode_to_string(mode_t mode) {
     buf[6] = (mode & S_IROTH) ? 'r' : '-';
     buf[7] = (mode & S_IWOTH) ? 'w' : '-';
     buf[8] = (mode & S_IXOTH) ? 'x' : '-';
+    if (mode & S_ISUID) buf[2] = (mode & S_IXUSR) ? 's' : 'S';
+    if (mode & S_ISGID) buf[5] = (mode & S_IXGRP) ? 's' : 'S';
+    if (mode & S_ISVTX) buf[8] = (mode & S_IXOTH) ? 't' : 'T';
     return string(buf, 9);
 }
 

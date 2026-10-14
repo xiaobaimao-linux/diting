@@ -23,7 +23,7 @@
 | case-12 | 写 /etc/passwd | 追加一行到**测试替身** `/tmp/bg-attack-cases/passwd-copy` | alerts `dsl.cred_write_etc_passwd` ×≥1（file_path 为替身路径） | 原地覆盖恢复替身内容 |
 | case-13 | 篡改 authorized_keys | 向测试家目录 `.ssh/authorized_keys` 追加攻击者公钥 | alerts `dsl.cred_tamper_authorized_keys` ×≥1 | 原地覆盖去除追加行 |
 | case-14 | 清空 shell 历史 | `dd` 覆写测试家目录 `.bash_history`（conv=notrunc 保 inode；只有真实 write 才产生 file.write 事件） | alerts `dsl.cred_clear_shell_history` ×≥1 | 追加写恢复内容 |
-| case-15 | chmod 设置 SUID 位 | `chmod 4755` 测试替身 suid-target.conf（new_mode 渲染 &0777 掩掉高位，见 G11） | alerts `dsl.priv_suid_file_create` ×≥1 | 恢复 0644 |
+| case-15 | chmod 设置 SUID 位 | `chmod 4755` 测试替身 suid-target.conf（new_mode 含 s/S 高位精确判定，G11 已于 W8 修复） | alerts `dsl.priv_suid_file_create` ×≥1 | 恢复 0644 |
 | case-16 | 非白名单 ptrace attach | python3（非调试器白名单）对 sleep 进程 PTRACE_ATTACH 后 DETACH | alerts `dsl.priv_ptrace_attach` ×≥1 | 杀掉 sleep |
 | case-17 | 加载内核模块 | `modprobe dummy`（可逆，dummy 不在白名单） | alerts `dsl.priv_kernel_module_load` ×≥1 | `modprobe -r dummy` |
 | case-18 | unshare 创建 user namespace | `unshare --user true`（CLONE_NEWUSER=268435456，ns.flags 数值判定，G10） | alerts `dsl.priv_unshare_user_namespace` ×≥1 | ns 随进程退出自销毁 |
@@ -79,8 +79,9 @@
 
 1. **priv/ns 类用例不依赖 file 注册**（G3 修复后 priv/ns 事件已接入规则引擎），case-16/17/18 无需替身，
    直接用真实攻击动作（python3 ptrace attach、modprobe dummy、unshare --user），全部可逆。
-2. **SUID 规则的替身与近似判定**：file.new_mode 渲染时被 `& 0777` 掩掉 setuid 高位（G11），
-   `chmod 4755` 与 `chmod 755` 在规则侧不可区分，用例固定用 4755 触发、cleanup 恢复 0644。
+2. **SUID 规则的替身与精确判定**：W8（2026-10-14）G11 已修复——file.new_mode 保留 setuid/setgid 高位
+   （ls 语义 s/S），`chmod 4755` 渲染为 `rwsr-xr-x` 与 `chmod 755`（`rwxr-xr-x`）可区分，
+   规则按 `new_mode contains s/S` 判定；用例固定用 4755 触发、cleanup 恢复 0644。
 3. **crontab/systemd/ld.so.preload 用替身路径**（安全约束：不碰真实系统配置；ld.so.preload 写入是
    全系统级破坏，尤其严禁），替身路径硬编码进规则 condition 列表（G7 无路径变量，同 D1 case-12 思路），
    对应 AC-15/19/20/21 四条 FIM 注册是为 DSL 规则供 file 事件的前置（G6）。

@@ -1,18 +1,17 @@
 # 提权/逃逸类核心规则（TA0004 Privilege Escalation）——W6 D2
 # 引擎约束（详见 docs/rule-engine-gaps.md）：
-#   - file.new_mode 渲染时被 &0777 掩掉 setuid/setgid/sticky 位（G11），SUID 判定退化为执行位启发式；
 #   - DSL 无位运算操作符（G12），ns.flags 组合位只能枚举常见取值；
 #   - file 事件仅覆盖 config.yaml rules: 注册的 inode（G6），测试替身路径选型同 D1（G7）。
 
-# priv-suid-file-create：chmod 设置 SUID 位（new_mode 高位被掩，渲染为 rwx 符号串（文档口径已对齐，G11 未决），以 4755→rwxr-xr-x 形态近似）
+# priv-suid-file-create：chmod 设置 SUID/SGID 位（W8（2026-10-14）G11 已修复，new_mode 含 s/S 位精确判定）
 - rule: Priv Suid File Create
-  desc: 文件被 chmod 为 rwxr-xr-x（0755 类）权限，疑似 chmod 4755/u+s 设置 SUID 位（file.new_mode 渲染为 9 字符 rwx 符号串——文档口径 W7 D2 已对齐——且 &0777 掩掉高位，04755 与 0755 均渲染为 rwxr-xr-x 不可区分，见 G11；u+s 作用于 0644 文件时渲染为 rw-r--r-- 完全不可见）；/tmp/bg-attack-cases/suid-target.conf 是攻击用例的测试替身路径，命中域实际受 G6 注册 inode 限制
-  condition: event_type = file.chmod and file.new_mode = rwxr-xr-x and not process.exe in (/usr/bin/dpkg, /bin/dpkg, /usr/bin/dpkg-deb, /usr/bin/rpm, /usr/bin/install, /bin/install)
+  desc: 文件被 chmod 设置 SUID/SGID 位（file.new_mode 为 9 字符 ls 语义 rwx 符号串，含 s/S 高位——rwx 串中 's'/'S' 只会来自 suid/sgid 位，W8（2026-10-14）G11 已修复，04755→rwsr-xr-x 精确可判定）；/tmp/bg-attack-cases/suid-target.conf 是攻击用例的测试替身路径，命中域实际受 G6 注册 inode 限制
+  condition: event_type = file.chmod and (file.new_mode contains s or file.new_mode contains S) and not process.exe in (/usr/bin/dpkg, /bin/dpkg, /usr/bin/dpkg-deb, /usr/bin/rpm, /usr/bin/install, /bin/install)
   output: "疑似 SUID 位设置 (rule=%rule.name exe=%process.exe pid=%process.pid uid=%process.uid file=%file.path mode=%file.new_mode container=%container.container_id)"
   priority: high
   attack: [T1548.001, TA0004]
-  fpr_note: 普通 chmod 755（脚本赋可执行权）与 chmod 4755 渲染结果相同（G11），必然混入；file 事件只覆盖注册 inode（G6），生产环境命中域=受监控敏感文件，chmod 755 敏感文件本身即值得审计；包管理器（dpkg/rpm/install）已按 exe 白名单豁免，现场构建系统（make install 调 install/chmod）命中时补白名单即可
-  response: stat 该文件确认真实 mode 是否含 4xxx 高位（告警中 new_mode 已被掩码不可信）；含 SUID 位则核对变更工单，非预期立即 chmod u-s 并沿祖先链溯源操作者，检查该进程后续的提权利用痕迹
+  fpr_note: setgid 位（2xxx）一并命中是刻意取舍（同为提权位）；包管理器（dpkg/rpm/install）已按 exe 白名单豁免，现场构建系统（make install 调 install/chmod）命中时补白名单即可；file 事件仅覆盖注册 inode（G6），生产环境命中域=受监控敏感文件，对敏感文件设置 SUID/SGID 本身即值得审计
+  response: 告警中 new_mode 为 ls 语义 9 字符串，s/S 位置即真实 suid/sgid 位，可直接采信（必要时 stat 复核）；含 SUID/SGID 位则核对变更工单，非预期立即 chmod u-s,g-s 并沿祖先链溯源操作者，检查该进程后续的提权利用痕迹
 
 # priv-ptrace-attach：非白名单进程 ptrace attach（调试器白名单豁免）
 - rule: Priv Ptrace Attach

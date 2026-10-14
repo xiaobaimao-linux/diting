@@ -8,6 +8,7 @@
 - 影响：`exec-reverse-shell-bash` 的 `bash -i` 交互标志、`exec-reverse-shell-interpreter` 的 python/perl `socket+pty` 命令行组合特征、`cred-clear-history` 的 `history -c` 内建命令，均不可表达。
 - 退化方案：规则 1 用"shell 的祖先链含解释器/网络工具"近似；规则 2 只覆盖 exe 可识别的双用途工具（nc/socat 家族），python/perl 放弃；规则 8 只覆盖文件层面的 history 清空/删除。
 - v2 方向：exec 事件采集 cmdline（受内核截断限制，建议前 256 字节）。
+- 注（2026-10-14，W8 S1）：exec cmdline 前 255 字节已落地（见 G19），`bash -i` 交互标志、命令行特征类条件已可表达；`history -c` 等 shell 内建命令不产生 exec 事件，仍不可见。
 
 ## G2 无 fd/socket 关联信息
 
@@ -71,10 +72,9 @@
 
 ## G11 file.new_mode 渲染掩掉 setuid/setgid/sticky 高位
 
-- 现状：EventView 构造与落库 JSON 均做 `mode_to_string(new_mode & 0777)`（src/baseline/monitor.cpp:1324、1184），04755 渲染为 "0755"、04644 渲染为 "0644"。
-- 影响：`priv-suid-file-create` 无法直接判定 SUID 位——`chmod 4755` 与 `chmod 755` 不可区分（混报），`chmod u+s` 作用于 0644 文件时渲染为 "0644" 完全不可见（漏报）。
-- 退化方案：规则以 `file.new_mode = 0755` + exe 白名单近似，fpr_note 告知告警后须 stat 复核真实 mode。
-- v2 方向：渲染保留完整 mode（`& 07777`，4 位八进制字符串），历史数据格式兼容在 W7 一并评估。
+- **已修复（2026-10-14，W8 S1）**：渲染保留高位——`mode_to_string`（src/common/utils.cpp）改为标准 ls 语义（S_ISUID/S_ISGID 位产 s/S、S_ISVTX 产 t/T，仍 9 字符，无高位输出逐字节不变）；两处事件渲染掩码 `& 0777` → `& 07777`（src/baseline/monitor.cpp render_file_payload 落库 + eval_rules_on_file_event 规则视图）。基线比对路径（monitor.cpp `st.st_mode & 0777`、handle_chmod_chown_event、ComparePermOwnership）**保持 0777 不变**——基线库 permission 为 0777 口径，动它会对合法 SUID 文件（/usr/bin/passwd 类）产生 perm_changed 误报；SUID 变更检测由 DSL 规则承担。规则 priv-suid-file-create 升级为真判定：`file.new_mode contains s or contains S`（rwx 串中 s/S 只来自 suid/sgid 位；setgid 一并命中为刻意取舍），保留 dpkg/rpm/install exe 白名单。三处同步：docs/event-schema-v1.md §2.1、docs/rule-dsl-v1.md §3、单测 UTL-005~012（04755→rwsr-xr-x、04644→rwSr--r--、01777→rwxrwxrwt、02755→rwxr-sr-x、0755/0644 不回归）。验证：`chmod u+s`（0644→4644）精确命中、`chmod 755` 零命中、04755 落库 `rwsr-xr-x`、case-15 PASS。
+- 原现状：EventView 构造与落库 JSON 均做 `mode_to_string(new_mode & 0777)`，04755 与 0755 同渲染为 rwxr-xr-x，SUID 不可判定。
+- 原退化方案：规则以 `file.new_mode = rwxr-xr-x` + exe 白名单近似，fpr_note 告知告警后须 stat 复核真实 mode。
 
 ## G12 无位运算操作符（ns.flags 组合位不可表达）
 
@@ -120,21 +120,24 @@
 
 ## G19 无 cmdline 使"同 exe 不同意图"的工具类规则只能退化（G1 的影响扩展登记）
 
-- 现状：同 G1（exec 无 cmdline/argv），W7 D3 写防御规避/挖矿规则时影响集中爆发，单独登记以挂 v2 草案。
-- 影响（W7 D3 实测退化）：`evasion-stop-audit-service` 的 systemctl **动作与目标**（stop/disable + auditd/rsyslog）不可判定，退化为 systemctl 执行即报（priority 降 medium，status/restart 全命中）；`evasion-chattr-immutable` 的 **+i/-i** 不可区分；`evasion-kill-security-tool` 的 **pkill 目标进程名**不可判定，退化为 kill 家族执行即报；`mining-binary-exec` 的 **--donate-level / stratum+tcp://** 命令行特征不可表达，随机改名矿机漏报。
-- 退化方案：exe 命中 + fpr_note 声明噪声（**不能**用祖先链豁免 systemd 做降噪——pid 1 恒在 8 层祖先链内，豁免即全量静默，W7 D3 首轮回归实测 case-28/30 零告警踩出）；检出缺口靠 shm 执行/矿池端口/DNS 三条单因子规则互补。
-- v2 草案（cmdline 采集落地后改写）：
-  - stop-audit：`process.exe in (systemctl 路径) and process.cmdline contains (stop, disable) and process.cmdline contains (auditd, rsyslog, audit)`；
+- **已修复（2026-10-14，W8 S1）**：定位结论——并非"采集不完整/截断"，而是**全链路无采集**（BPF exec tracepoint 只读 filename，proc_event 无 cmdline 字段，用户态无截断点）。选型 **256B 而非 4KB**：EventRecord.payload_raw 容量 640B（event_record.hpp kRecordPayloadCap，R13 内存决策，hi 32768 + lo 65536 槽常驻 ~67MB），proc_event 312B + cmdline[256] = 568B **零内存增长**；4KB 需 payload cap 涨至 ~4.4KB、总线常驻 ×7（~440MB），违反 RSS ≤150MB 预算。256B 同时与 G1 v2 方向"建议前 256 字节"一致。
+  - 落地：BPF `tp_sched_process_exec` 读 `task->mm->arg_start/arg_end`（mm 判空、区间判非法、min(·,255) 钳制 + verifier mask，bpf_probe_read_user，sched_process_exec 时新 mm 已激活）；用户态 NUL→空格拼接（monitor_process.cpp `proc_cmdline_join`，尾部截掉）；DSL 新增 `process.cmdline` 字段（EventView/FieldId/condition_parser/模板插值全链路）；非 exec 事件与读取失败按缺失语义=空串。
+  - **附带修复（实测抓出的阻断 bug）**：255 字节截断可能切断多字节 UTF-8 序列，nlohmann 序列化抛 type_error.316 致消费线程 terminate（可被构造 argv 利用的 DoS）——`proc_cmdline_join` 加严格 UTF-8 清洗（非法/截断序列替换 U+FFFD），route_event 加 try/catch 根因兜底（单事件渲染异常只 error 跳过不终止）。
+  - 规则收紧：`evasion-stop-audit-service` 按 v2 草案落地（exe in systemctl/service 路径 and cmdline contains stop/disable and cmdline contains auditd/rsyslog/audit），priority 恢复 high。验证：`systemctl stop auditd-*` 命中、`status/is-active/restart` 零命中（F1 收紧）、case-28 PASS、310B argv 实测恰 255 字节截断。
+  - 未改造项（后续）：chattr +i/-i 区分、kill-security-tool 目标名、mining 命令行特征——cmdline 字段已就绪，按 v2 草案逐条改写即可。
+- 原现状：同 G1（exec 无 cmdline/argv），W7 D3 写防御规避/挖矿规则时影响集中爆发，单独登记以挂 v2 草案。
+- 原影响（W7 D3 实测退化）：`evasion-stop-audit-service` 的 systemctl **动作与目标**（stop/disable + auditd/rsyslog）不可判定，退化为 systemctl 执行即报（priority 降 medium，status/restart 全命中）；`evasion-chattr-immutable` 的 **+i/-i** 不可区分；`evasion-kill-security-tool` 的 **pkill 目标进程名**不可判定，退化为 kill 家族执行即报；`mining-binary-exec` 的 **--donate-level / stratum+tcp://** 命令行特征不可表达，随机改名矿机漏报。
+- 原退化方案：exe 命中 + fpr_note 声明噪声（**不能**用祖先链豁免 systemd 做降噪——pid 1 恒在 8 层祖先链内，豁免即全量静默，W7 D3 首轮回归实测 case-28/30 零告警踩出）；检出缺口靠 shm 执行/矿池端口/DNS 三条单因子规则互补。
+- 残余 v2 草案（未改造项，cmdline 已可用）：
   - chattr：`process.exe = chattr 路径 and process.cmdline contains +i`；
   - kill-security-tool：`process.exe in (pkill, killall) and process.cmdline contains (falco, edr, diting, osquery, auditd)`；
   - mining-binary：`process.cmdline contains (--donate-level, stratum+tcp, stratum+ssl)`（与 exe 名 or 关系）。
 
 ## G21 exe 富化解析符号链接真实路径，argv[0] 双行为二进制按 exe 不可区分
 
-- 现状：exec 事件的 `process.exe` 富化为可执行文件真实路径——`/usr/bin/pkill` 是指向 `pgrep` 的符号链接，pkill 执行时 exe 渲染为 `/usr/bin/pgrep`（W7 D3 case-30 实测：condition 写 pkill 路径零命中，events.db 中 comm=pkill、exe=/usr/bin/pgrep）。busybox/toybox 家族（/bin/ls → busybox）同款。
-- 影响：按"调用名"区分行为的工具（pkill vs pgrep 只读查询、killall vs pidof），按 exe 写规则要么漏报（写 pkill 路径永不命中）、要么混报（写 pgrep 路径把只读查询也报进来）。
-- 退化方案：`evasion-kill-security-tool` 改用 `process.comm in (pkill, killall)` 判定调用名（comm 即 argv[0] 前 15 字符），可伪造的权衡写入 fpr_note。
-- v2 方向：exec 事件同时携带 exe 原始路径（未解析符号链接）或 argv[0]。
+- **已定型（2026-10-14，W8 S1，方案 A）**：语义定型为"真实身份看 exe、调用行为看 comm"——`process.exe` 维持 /proc/pid/exe 解析后真实路径（现状不变），调用名判定走已有的 `process.comm`（内核 comm，即 argv[0] 前 15 字符，反映链接/调用名）。不选 B（exe/resolved_exe 双字段或 exe 改未解析路径）的理由：exe 语义变更会波及全部按解析后路径编写验证的 24 条规则与 30 用例（/bin→/usr/bin 链接解析差异会成片漏报），迁移风险大；comm 字段本就在 schema/EventView 中且退化规则已按 comm 验证，A 零 schema 膨胀、零回归。文档同步：docs/event-schema-v1.md §2.2、docs/rule-dsl-v1.md §3（含 comm 可伪造权衡）。验证（W8 S1 实测）：`pkill -f X` 命中 dsl.evasion_kill_security_tool（exe=/usr/bin/pgrep, comm=pkill）；`pgrep bash` 只读查询零命中（comm=pgrep 不在条件内）；符号链接副本 `/tmp/g21-pkill`（→pgrep）呈现 comm=g21-pkill/exe=/usr/bin/pgrep 且不误命中；bash 副本改名执行 exe=/tmp/g21-shell、comm=g21-shell 双字段各自正确；case-30 PASS。
+- 原现状：exec 事件的 `process.exe` 富化为可执行文件真实路径——`/usr/bin/pkill` 是指向 `pgrep` 的符号链接，pkill 执行时 exe 渲染为 `/usr/bin/pgrep`（W7 D3 case-30 实测：condition 写 pkill 路径零命中，events.db 中 comm=pkill、exe=/usr/bin/pgrep）。busybox/toybox 家族（/bin/ls → busybox）同款。
+- 原影响：按"调用名"区分行为的工具（pkill vs pgrep 只读查询、killall vs pidof），按 exe 写规则要么漏报（写 pkill 路径永不命中）、要么混报（写 pgrep 路径把只读查询也报进来）。
 
 ## G20 无 CIDR/网段比较（IP 白名单只能逐字面量枚举）
 

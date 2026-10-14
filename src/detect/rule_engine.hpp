@@ -27,9 +27,9 @@ struct AncestorView {
 struct EventView {
     std::string_view event_type;
 
-    // process.*（所有事件恒有）
+    // process.*（所有事件恒有；cmdline 仅 process.exec 填充，其余为空串）
     long long pid = 0, ppid = 0, uid = 0, gid = 0;
-    std::string_view comm, exe;
+    std::string_view comm, exe, cmdline;
     std::string_view container_id;       // 宿主机进程为空
     std::vector<AncestorView> ancestors; // 自近及远 ≤8 层
 
