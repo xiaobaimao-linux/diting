@@ -35,7 +35,7 @@ echo "=== 等落库 + 等一个 60s 统计 tick ==="
 sleep 65
 
 DB_AFTER=$(sqlite3 /var/lib/diting/baseline.db "select count(*) from alerts where rule_id='$RULE_ID';")
-EV_COUNT=$(sqlite3 events_perf.db "select count(*) from events where json_extract(payload,'\$.file.path')='$TARGET' and json_extract(payload,'\$.event_type')='file.read';")
+EV_COUNT=$(sqlite3 /tmp/bg-perf/events_perf.db "select count(*) from events where json_extract(payload,'\$.file.path')='$TARGET' and json_extract(payload,'\$.event_type')='file.read';")
 THROTTLED=$(grep -oE "\[alerts\] throttled: rule=$RULE_ID count=[0-9]+" "$LOG" | tail -1 | grep -oE "[0-9]+$")
 SENT=$((DB_AFTER-DB_BEFORE))
 THROTTLED=${THROTTLED:-0}

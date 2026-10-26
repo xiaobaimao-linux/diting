@@ -26,13 +26,13 @@ pidstat -p "$MPID" 3 2 > "$RES/re_${LABEL}_idle_cpu.txt" 2>&1
 
 echo "=== [$LABEL] 压测 $OPS ops / ${SECS}s / $RATE ops/s + 线程级 CPU 采样 ==="
 ./diting stats --drop > "$RES/re_${LABEL}_drop_before.txt"
-EV_BEFORE=$(sqlite3 events_perf.db "select count(*) from events where json_extract(payload,'\$.file.path')='$TARGET';")
+EV_BEFORE=$(sqlite3 /tmp/bg-perf/events_perf.db "select count(*) from events where json_extract(payload,'\$.file.path')='$TARGET';")
 tests/perf/gen_load "$TARGET" "$OPS" "$SECS" "$RATE" > "$RES/re_${LABEL}_genload.txt" 2>&1 &
 GL=$!
 pidstat -t -p "$MPID" 10 $((SECS/10)) > "$RES/re_${LABEL}_load_cpu.txt" 2>&1
 wait $GL
 sleep 3
-EV_AFTER=$(sqlite3 events_perf.db "select count(*) from events where json_extract(payload,'\$.file.path')='$TARGET';")
+EV_AFTER=$(sqlite3 /tmp/bg-perf/events_perf.db "select count(*) from events where json_extract(payload,'\$.file.path')='$TARGET';")
 ./diting stats --drop > "$RES/re_${LABEL}_drop_after.txt"
 echo "RSS@end: $(grep VmRSS /proc/$MPID/status)"
 

@@ -35,7 +35,7 @@ DB=/var/lib/diting/baseline.db
 RULE_FILTER="rule_id IN ('$RULE_ID','STORM-SRC')"   # FIM allow 规则与 DSL 规则同事件各落一条
 EV_SQL="select count(*) from events where json_extract(payload,'\$.file.path')='$TARGET' and json_extract(payload,'\$.event_type')='file.read';"
 DB_BEFORE=$(sqlite3 "$DB" "select count(*) from alerts where $RULE_FILTER;")
-EV_BEFORE=$(sqlite3 events_perf.db "$EV_SQL")
+EV_BEFORE=$(sqlite3 /tmp/bg-perf/events_perf.db "$EV_SQL")
 
 echo "=== 风暴生成：5,000 次读 / 300s（每次 cat 命中 open+read 两钩子 = 2 条告警）==="
 GEN_START=$(date +%s)
@@ -55,7 +55,7 @@ for i in $(seq 1 40); do kill -0 "$MPID" 2>/dev/null || break; sleep 0.5; done
 kill "$SINK_PID" 2>/dev/null; wait "$SINK_PID" 2>/dev/null
 
 DB_AFTER=$(sqlite3 "$DB" "select count(*) from alerts where $RULE_FILTER;")
-EV_AFTER=$(sqlite3 events_perf.db "$EV_SQL")
+EV_AFTER=$(sqlite3 /tmp/bg-perf/events_perf.db "$EV_SQL")
 EV_COUNT=$((EV_AFTER-EV_BEFORE))
 # 外发实绩两个独立来源：sink 实收 + monitor 日志 webhook sent 行数（计数器以 final stats 为准）
 SENT_LOG=$(grep -c '\[notify\] webhook sent' "$LOG")

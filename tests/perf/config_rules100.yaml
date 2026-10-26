@@ -8,7 +8,7 @@ telemetry:
   dns: false
   privilege: false
   store: true
-  events_db: "events_perf.db"
+  events_db: "/tmp/bg-perf/events_perf.db"
   batch_size: 500
   batch_ms: 200
 
