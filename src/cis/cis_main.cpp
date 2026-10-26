@@ -58,7 +58,7 @@ void PrintCisUsage() {
               << "check options:\n"
               << "  --defs PATH      check definition YAML (default: " << kDefaultDefs << ")\n"
               << "  --category LIST  categories to run, repeatable or comma-separated\n"
-              << "                   (default: AUTH,SSH,MISC)\n"
+              << "                   (default: all — AUTH,SSH,LOG,NET,FILE,MISC)\n"
               << "\n"
               << "report options:\n"
               << "  --level L      filter by severity: high|medium|low\n"
@@ -197,7 +197,8 @@ int RunCheck(int argc, char* argv[]) {
         return 0;
     }
     if (!category_given) {
-        categories = {"AUTH", "SSH", "MISC"};
+        // W8 S3：默认全量 40 项（全 6 类）；--category 仍可过滤
+        categories = {"AUTH", "SSH", "MISC", "LOG", "NET", "FILE"};
     }
 
     std::vector<CisCheckDef> defs;
@@ -217,10 +218,6 @@ int RunCheck(int argc, char* argv[]) {
     CisStore store(common.db_path);
     const std::string host = GetHostname();
     const std::string checked_at = NowIso();
-
-    if (!category_given && !common.json_output) {
-        std::cout << "LOG/NET/FILE 为 D4 范围，本次未执行" << std::endl;
-    }
 
     int pass_count = 0;
     int fail_count = 0;

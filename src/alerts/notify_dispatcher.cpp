@@ -8,7 +8,7 @@ NotifyDispatcher::NotifyDispatcher() {
     worker_ = std::thread(&NotifyDispatcher::WorkerMain, this);
 }
 
-NotifyDispatcher::~NotifyDispatcher() {
+void NotifyDispatcher::Shutdown() {
     {
         std::lock_guard<std::mutex> lk(mu_);
         stop_ = true;
@@ -17,6 +17,10 @@ NotifyDispatcher::~NotifyDispatcher() {
     if (worker_.joinable()) {
         worker_.join();
     }
+}
+
+NotifyDispatcher::~NotifyDispatcher() {
+    Shutdown();
 }
 
 void NotifyDispatcher::UpdateConfig(const NotifyConfig& cfg) {

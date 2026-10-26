@@ -51,6 +51,7 @@ void PrintAlertsUsage() {
     printf("Usage: %s alerts [options]\n", "diting");
     printf("Options:\n");
     printf("  -n, --limit <num>     display the latest N alerts (default: 20)\n");
+    printf("  --db <path>           alerts database path (default: /var/lib/diting/baseline.db)\n");
     printf("  --today               only show alerts from today\n");
     printf("  --rule=<name>         filter by rule_id/rule_name\n");
     printf("  --rule <name>         same as above\n");
@@ -266,9 +267,11 @@ int main(int argc, char *argv[]) {
 
     // 2. 延迟初始化数据库（仅在需要时创建）
     BaselineDB* db_ptr = nullptr;
-    auto get_db = [&db_ptr]() -> BaselineDB& {
+    std::string db_path_override;   // alerts --db 指定，空则默认路径
+    auto get_db = [&db_ptr, &db_path_override]() -> BaselineDB& {
         if (!db_ptr) {
-            db_ptr = new BaselineDB();
+            db_ptr = db_path_override.empty() ? new BaselineDB()
+                                              : new BaselineDB(db_path_override);
         }
         return *db_ptr;
     };
@@ -405,6 +408,14 @@ int main(int argc, char *argv[]) {
                         fprintf(stderr, "Error: invalid numeric value for %s\n", argv[j]);
                         return 1;
                     }
+                } else if (subarg == "--db") {
+                    if (j + 1 >= argc) {
+                        fprintf(stderr, "Error: missing value for --db\n");
+                        return 1;
+                    }
+                    db_path_override = argv[++j];
+                } else if (subarg.rfind("--db=", 0) == 0) {
+                    db_path_override = subarg.substr(std::string("--db=").size());
                 } else if (subarg == "--today") {
                     today = true;
                 } else if (subarg == "--stats") {
@@ -469,25 +480,54 @@ int main(int argc, char *argv[]) {
                 fprintf(stderr, "Error: --since is only valid with --stats\n");
                 return 1;
             }
-            if (stats) {
-                std::string cutoff;
-                if (!since_spec.empty()) {
-                    long long seconds = 0;
-                    if (!ParseSinceSpec(since_spec, seconds)) {
+            // 可读性预检：非 root 读默认系统库时给明确提示，而不是抛异常/空输出
+            {
+                const std::string alerts_db_path =
+                    db_path_override.empty() ? "/var/lib/diting/baseline.db" : db_path_override;
+                if (access(alerts_db_path.c_str(), F_OK) != 0) {
+                    if (errno == EACCES) {
                         fprintf(stderr,
-                                "Error: invalid --since window: %s (e.g. 1h / 24h / 30m / 7d)\n",
-                                since_spec.c_str());
-                        return 1;
+                                "Error: permission denied reading alerts database: %s"
+                                " (try sudo, or --db <path>)\n",
+                                alerts_db_path.c_str());
+                    } else {
+                        fprintf(stderr, "Error: alerts database not found: %s\n",
+                                alerts_db_path.c_str());
                     }
-                    cutoff = CutoffTimeString(seconds);
+                    return 1;
                 }
-                PrintAlertStats(get_db().GetAlertStats(cutoff, severity), since_spec);
-                return 0;
+                if (access(alerts_db_path.c_str(), R_OK) != 0) {
+                    fprintf(stderr,
+                            "Error: permission denied reading alerts database: %s"
+                            " (try sudo, or --db <path>)\n",
+                            alerts_db_path.c_str());
+                    return 1;
+                }
             }
+            try {
+                if (stats) {
+                    std::string cutoff;
+                    if (!since_spec.empty()) {
+                        long long seconds = 0;
+                        if (!ParseSinceSpec(since_spec, seconds)) {
+                            fprintf(stderr,
+                                    "Error: invalid --since window: %s (e.g. 1h / 24h / 30m / 7d)\n",
+                                    since_spec.c_str());
+                            return 1;
+                        }
+                        cutoff = CutoffTimeString(seconds);
+                    }
+                    PrintAlertStats(get_db().GetAlertStats(cutoff, severity), since_spec);
+                    return 0;
+                }
 
-            const auto alerts = get_db().GetAlerts(rule, severity, limit, today);
-            PrintAlerts(alerts);
-            return 0;
+                const auto alerts = get_db().GetAlerts(rule, severity, limit, today);
+                PrintAlerts(alerts);
+                return 0;
+            } catch (const std::exception& ex) {
+                fprintf(stderr, "Error: failed to open alerts database: %s\n", ex.what());
+                return 1;
+            }
         } else if (arg == "monitor") {
             // 解析 monitor 子命令的参数
             std::string monitor_db_path;

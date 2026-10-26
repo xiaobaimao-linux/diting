@@ -77,11 +77,15 @@ AlertManager::AlertManager() {
 }
 
 AlertManager::~AlertManager() {
-    // 进程退出前打最终外发计数（对账口径；周期 tick 可能滞后于最后几条发送）
+    // 先停外发工作线程再读计数，保证 final stats 是最终口径；
+    // 无条件输出（通道全关时计数全 0 也要留对账行），并显式 flush，
+    // 防止进程退出路径上 spdlog 先于本析构被拆而丢行
+    notify_dispatcher_.Shutdown();
     const NotifyStats ns = notify_dispatcher_.Stats();
-    if (ns.sent > 0 || ns.failed > 0 || ns.suppressed > 0 || ns.dropped > 0 || ns.merged > 0) {
-        spdlog::info("[notify] final stats: sent={} failed={} suppressed={} dropped={} merged={}",
-                     ns.sent, ns.failed, ns.suppressed, ns.dropped, ns.merged);
+    spdlog::info("[notify] final stats: sent={} failed={} suppressed={} dropped={} merged={}",
+                 ns.sent, ns.failed, ns.suppressed, ns.dropped, ns.merged);
+    if (auto logger = spdlog::default_logger()) {
+        logger->flush();
     }
     curl_global_cleanup();
 }

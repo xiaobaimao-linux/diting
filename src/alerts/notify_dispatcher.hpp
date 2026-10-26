@@ -51,6 +51,10 @@ public:
     NotifyDispatcher(const NotifyDispatcher&) = delete;
     NotifyDispatcher& operator=(const NotifyDispatcher&) = delete;
 
+    // 停工作线程并 join（幂等）。供 AlertManager 析构在打 final stats 前
+    // 显式调用，保证计数读数在工作线程退出之后、最终口径无遗漏
+    void Shutdown();
+
     // 热加载入口（SIGHUP 路径与启动共用）
     void UpdateConfig(const NotifyConfig& cfg);
 
