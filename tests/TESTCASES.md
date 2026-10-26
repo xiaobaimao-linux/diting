@@ -111,5 +111,5 @@
 
 ## 五、攻击用例库（attack-cases）
 
-6 个攻击用例（反弹 shell / 读 /etc/shadow / chmod 777 / 容器内 docker 命令 / 批量敏感读取 / 容器内篡改挂载基线文件），
+36 个攻击用例（W4/W5 基础 6 个 + W6/W7/W8 规则包配套 30 个，含反弹 shell / 读 /etc/shadow / chmod 777 / 容器内 docker 命令 / 批量敏感读取 / 容器内篡改挂载基线文件 / 挖矿 / 防御规避 / AI 专项等），
 每个用例 = 攻击脚本 + 预期事件核对 + 清理步骤，可连跑多遍。清单与执行方式见 [attack-cases/README.md](attack-cases/README.md)。

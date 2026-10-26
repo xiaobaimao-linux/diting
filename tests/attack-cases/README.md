@@ -1,6 +1,6 @@
 # diting 攻击用例库
 
-30 个攻击用例（case-01~06 为 W4/W5 基础用例，case-07~14 为 W6 D1 规则包配套用例，case-15~22 为 W6 D2 规则包配套用例，case-23~30 为 W7 D3 挖矿/防御规避规则包配套用例），
+36 个攻击用例（case-01~06 为 W4/W5 基础用例，case-07~14 为 W6 D1 规则包配套用例，case-15~22 为 W6 D2 规则包配套用例，case-23~30 为 W7 D3 挖矿/防御规避规则包配套用例，case-31~36 为 W8 S2 AI 专项规则包配套用例），
 每个用例 = `run.sh`（攻击动作）+ `verify.sh`（预期事件核对）+ `cleanup.sh`（清理步骤）。
 所有用例对同一 monitor 实例执行，验证脚本查询 `events.db`（遥测事件）和 `baseline.db`（alerts 表），
 用打标机（mark）做增量计数，因此用例可以连跑多遍、结果互不干扰。
@@ -39,6 +39,28 @@
 | case-28 | 停审计服务 | `systemctl is-active/is-enabled auditd/rsyslog`（非破坏性；G19 退化规则无法区分动作，禁真停服务） | alerts `dsl.evasion_stop_audit_service` ×≥1 | 无副作用 |
 | case-29 | chattr 锁定 | `chattr +i` 测试文件（G19：+i/-i 不可区分） | alerts `dsl.evasion_chattr_immutable` ×≥1 | `chattr -i` |
 | case-30 | 杀安全工具 | sleep 副本改名 falco 后 `pkill`（pkill 是 pgrep 符号链接，规则按 comm 判定，G21） | alerts `dsl.evasion_kill_security_tool` ×≥1 | 杀替身进程删文件 |
+| case-31 | 非白名单读模型文件 | `cat` 读受管目录外替身 victim-read.safetensors（事前注入 model_file 资产行） | alerts `dsl.ai_model_file_read` ×≥1 且 AI 升级联动 escalated=1、medium→high | 删注入的资产行 |
+| case-32 | 模型文件删除/改名 | `mv` 改名替身 victim-rename.pt（保 inode，不用 rm——重建换 inode 第 2 轮无事件） | alerts `dsl.ai_model_file_delete` ×≥1 且升级联动 escalated=1、high→critical | 改回原名 + 删资产行 |
+| case-33 | 模型目录访问 | `cat` 读受管目录替身 models/model.gguf（与 file-read 按目录前缀互斥，G8） | alerts `dsl.ai_model_dir_access` ×≥1 且升级联动 escalated=1、medium→high | 删注入的资产行 |
+| case-34 | AI 工作负载外连 | python3（comm 命中 AI 运行时集合）连接本机外网口地址（local 路由投递，不出网卡）；负面对照连 127.0.0.1 | alerts `dsl.ai_workload_outbound` ×≥1 且 dip=127.0.0.1 ×0 | 杀监听 |
+| case-35 | 非 AI 进程加载 CUDA 库 | `cat` 读 libcuda.so.1 替身（本机无真实驱动库，替身路径走 in 字面量登记） | alerts `dsl.ai_cuda_inject` ×≥1 | 无副作用 |
+| case-36 | 非白名单访问 GPU 设备 | `cat` 读 /dev/nvidia0 替身（本机无 GPU） | alerts `dsl.ai_gpu_device_access` ×≥1 | 无副作用 |
+
+## W8 S2 用例（31~36）设计说明
+
+1. **AI 升级联动断言（case-31/32/33）**：run.sh 在攻击动作前把替身路径写进 alerts 同库
+   （/var/lib/diting/baseline.db）的 assets 表（asset_type=model_file，last_seen=当前时间），
+   W6 D4 的 MaybeBoostForAi 按 alerts.file_path 命中资产升一级；verify.sh 写死升级前后级别值
+   （severity_origin/severity）与 escalated=1 双重断言，防"字段置位但级别未变"的假联动。
+   cleanup.sh 删除注入行，避免污染后续运行。
+2. **替身选址与互斥（G8）**：case-31 替身在 unmanaged/（受管目录外，归 file-read）；
+   case-33 替身在 models/（受管目录替身前缀内，归 dir-access）——两规则按目录前缀显式互斥，
+   各归各位。case-34 的 dport 8443 避开矿池端口段（ai-workload-outbound 已显式剔除该段，
+   不抢占 mining-pool-port-connect）。
+3. **安全约束**：不碰真实模型仓库、/dev/nvidia*、CUDA 库；外连只到本机外网口地址
+   （127.0.0.1 已被规则豁免且无法触发，本机地址经 local 路由表投递不出网卡）。
+4. **G18 warn 降级是预期**：无 GPU 机器上真实 libcuda//dev/nvidia* 路径登记失败逐条 warn，
+   规则加载不受影响，命中链路全部由替身路径验证。
 
 ## W7 D3 用例（23~30）设计说明
 

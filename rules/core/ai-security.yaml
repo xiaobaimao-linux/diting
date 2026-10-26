@@ -1,0 +1,81 @@
+# AI 安全专项核心规则（模型资产保护 TA0009/TA0040 + AI 工作负载异常 TA0010/TA0005）——W8 S2
+# 能力底座：AI 资产采集（W5 D1，assets 表 model_file/process）、ai_workload 进程标记（W5 D2）、
+# AI 告警升级（W6 D4：alerts.file_path 命中 model_file 资产或进程命中 ai_workload 资产时级别升一级）、
+# DSL 文件规则自动登记 inode（W7 D1：condition 内 file.path 的 =/in 字面量加载期登记，全事件掩码）。
+# 引擎约束（详见 docs/rule-engine-gaps.md）：
+#   - 无 endswith/glob（G4）：模型扩展名只能 contains 子串匹配（".pt" 类短子串有理论噪声，见各规则 fpr_note）；
+#   - file 事件仅覆盖已登记 inode（G6）：contains/startswith 不触发登记，规则内 `in` 字面量除匹配外
+#     专职触发自动登记（W7 D1）；未登记路径上的真实模型文件不产事件，生产落地需把模型仓库纳入
+#     config rules:/基线登记，残余边界记入 G6；
+#   - DSL 无法引用 config 字段（G22）：ai-model-dir-access 的目录列表人工对齐 asset.model_scan_dirs
+#     默认值（~/.cache/huggingface、/data、/models，~ 按任意用户 contains 匹配），改 config 必须同步本规则；
+#   - DSL 无 ai_workload 资产判定（G23）："AI 标记进程"白名单按 comm 近似（python*/torchserve/tritonserver 等），
+#     ai_workload=true 但 comm 不在名单的自研推理进程仍会命中，按 comm 追加豁免；
+#   - 无 CIDR（G20）：外连白名单只能逐 IP 字面量，域名白名单（pypi/huggingface）记 fpr_note 人工调谐。
+# 命中域互斥自查（G8 单命中，ai-security.yaml 字母序最先加载，同文件内自上而下）：
+#   - ai-model-file-read 与 ai-model-dir-access 显式互斥：read 规则剔除受管目录前缀，
+#     受管目录内的一切打开（含模型文件）归 dir-access；事件类型上 delete（unlink/rename）与二者天然不交；
+#   - ai-workload-outbound 剔除矿池端口段（3333/4444/5555/7777/14444），mining-pool-port-connect 域不被抢占；
+#   - ai-cuda-inject / ai-gpu-device-access 路径域（libcuda/libnvidia-ml、/dev/nvidia*）与其余 28 条规则无交集；
+#   - 已知残余：模型扩展名文件恰好落在 persist/cred 规则字面路径（如 /var/spool/cron/x.pt）时归本包
+#     （加载序在前），概率极低，接受并记录于此。
+
+# ai-model-file-read：非白名单进程读受管目录之外的模型文件（T1530 数据收集）
+- rule: AI Model File Read
+  desc: 非白名单进程读取模型权重文件（.pt/.safetensors/.gguf/.onnx/.ckpt），疑似模型资产窃取/数据收集；受管目录（/data、/models、~/.cache/huggingface 及测试替身目录）被显式剔除——目录内的一切打开归 ai-model-dir-access（G8 单命中显式互斥）；file 事件仅覆盖已登记 inode（G6），未登记路径上的模型文件不产事件，生产落地需将模型仓库纳入 config rules:/基线登记
+  condition: event_type = file.read and (file.path contains .safetensors or file.path contains .gguf or file.path contains .onnx or file.path contains .ckpt or file.path contains .pt or file.path in (/tmp/bg-attack-cases/unmanaged/victim-read.safetensors)) and not file.path startswith /data/ and not file.path startswith /models/ and not file.path contains /.cache/huggingface/ and not file.path startswith /tmp/bg-attack-cases/models/ and not process.comm startswith python and not process.comm in (torchserve, tritonserver, triton, ollama, text-generation)
+  output: "非白名单进程读取模型文件 (rule=%rule.name comm=%process.comm exe=%process.exe pid=%process.pid uid=%process.uid file=%file.path container=%container.container_id)"
+  priority: medium
+  attack: [T1530, TA0009]
+  fpr_note: 白名单边界：comm 以 python 开头（覆盖 python/python3/python3.xx、pip/conda 等 shebang 入口——脚本实际 exec 解释器，comm 落在解释器名）或 torchserve/tritonserver/triton/ollama/text-generation 的进程豁免；ai_workload 资产标记无法在 DSL 表达（G23），标记进程若以名单外 comm 运行（自研推理框架、改名二进制）仍会命中，确认后按 comm 追加豁免；comm 可被 argv[0] 伪造（G21 已声明的取舍），攻击者改名 python* 即可绕过——防绕过依赖 exe/祖先链旁证，不属本规则职责；contains 子串匹配（G4 无 endswith），路径任何位置出现 ".pt" 等子串即命中（如 /opt/a.pt.bak），噪声按路径前缀追加 `and not file.path startswith <目录>` 收敛
+  response: 确认读取进程身份与祖先链（谁启动的、是否经 web 服务/容器入口）；比对 assets 表确认该模型文件归属与业务读取窗口；非预期读取则冻结进程、检查其外联（network.connect）与落地文件，溯源入侵入口
+
+# ai-model-file-delete：模型文件删除/改名（T1485 数据销毁；schema 支持 unlink/rename，无降级缺口）
+- rule: AI Model File Delete
+  desc: 模型权重文件被删除或改名（勒索/破坏/反取证常见动作）；event schema 原生支持 file.unlink/file.rename（event-schema-v1.md §2.1），无需降级为写覆盖检测；不剔除受管目录——删除模型在受管目录内同样是 T1485，且与 dir-access（仅 read/write/access）事件类型天然不交
+  condition: event_type in (file.unlink, file.rename) and (file.path contains .safetensors or file.path contains .gguf or file.path contains .onnx or file.path contains .ckpt or file.path contains .pt or file.path in (/tmp/bg-attack-cases/unmanaged/victim-rename.pt)) and not process.comm startswith python and not process.comm in (torchserve, tritonserver, triton, ollama, text-generation)
+  output: "模型文件被删除或改名 (rule=%rule.name comm=%process.comm exe=%process.exe pid=%process.pid uid=%process.uid file=%file.path event=%event_type container=%container.container_id)"
+  priority: high
+  attack: [T1485, TA0040]
+  fpr_note: 白名单边界同 ai-model-file-read（comm 近似 + G23 缺口）；训练框架的 checkpoint 轮换（删旧 ckpt）由 python* comm 豁免覆盖；运维手工 rm/mv 清理模型仓库会命中——这是有意的（人工高危操作应可见），确认流程后按维护窗口消化；rename 事件 file.path 渲染为登记时的路径（改名前），取证时注意新名不在告警内
+  response: 立即从备份/对象存储核对模型完整性；定位操作进程与祖先链，检查是否伴随批量删除（勒索）或权限异常；确认恶意后隔离主机并评估模型泄露面（删除前可能已被读取/外发）
+
+# ai-model-dir-access：模型扫描目录下非白名单进程的任何打开（T1039；目录列表人工对齐 asset.model_scan_dirs，G22）
+- rule: AI Model Dir Access
+  desc: 模型扫描目录（/data、/models、任意用户 ~/.cache/huggingface，人工对齐 asset.model_scan_dirs 默认值——DSL 无法引用 config 字段，G22；改 config 必须同步本规则）下非白名单进程的任何打开（read/write/access），覆盖目录内模型文件与非模型文件（配置/tokenizer 同样是收集目标）；与 ai-model-file-read 显式互斥：目录内模型文件归本规则（G8）
+  condition: event_type in (file.read, file.write, file.access) and (file.path startswith /data/ or file.path startswith /models/ or file.path contains /.cache/huggingface/ or file.path startswith /tmp/bg-attack-cases/models/ or file.path in (/tmp/bg-attack-cases/models/model.gguf, /tmp/bg-attack-cases/models/config.json)) and not process.comm startswith python and not process.comm in (torchserve, tritonserver, triton, ollama, text-generation)
+  output: "非白名单进程访问模型目录 (rule=%rule.name comm=%process.comm exe=%process.exe pid=%process.pid uid=%process.uid file=%file.path event=%event_type container=%container.container_id)"
+  priority: medium
+  attack: [T1039, TA0009]
+  fpr_note: 白名单边界同 ai-model-file-read（comm 近似 + G23）；huggingface_hub/transformers 的正常缓存读写全部落在 python* comm 下已豁免（误报检查实测：python3 读替身缓存目录零告警，docs/fpr-w8s2.md）；备份/同步工具（rsync/restic 全量扫目录）会命中，确认后按 comm 追加豁免；G6 残余：目录内未登记文件不产事件，生产落地需 config/基线纳管模型仓库
+  response: 确认进程身份与业务授权（是否该机的备份/同步窗口）；对目录做完整性盘点（新增/缺失文件）；非预期访问则按收集行为处置：冻结进程、查外联与压缩打包痕迹（/tmp 下归档文件）
+
+# ai-workload-outbound：AI 运行时进程发起外连（T1041 exfil；主体白名单即 AI 运行时 comm 集合，G23 近似）
+- rule: AI Workload Outbound
+  desc: AI 运行时进程（comm 以 python 开头或 torchserve/tritonserver/ollama/text-generation——ai_workload 资产标记无法在 DSL 表达，按 comm 近似，G23）发起非回环 outbound TCP 连接，疑似训练数据/模型外发；显式剔除矿池端口段（3333/4444/5555/7777/14444）——该域归 mining-pool-port-connect（G8 单命中互斥，ai-security.yaml 加载序在前，不剔除会抢占矿池外联归属）
+  condition: event_type = network.connect and (process.comm startswith python or process.comm in (torchserve, tritonserver, ollama, text-generation)) and not network.dip in (127.0.0.1, ::1) and not network.dport in (3333, 4444, 5555, 7777, 14444)
+  output: "AI 工作负载进程外连 (rule=%rule.name comm=%process.comm exe=%process.exe pid=%process.pid uid=%process.uid dip=%network.dip dport=%network.dport container=%container.container_id)"
+  priority: high
+  attack: [T1041, TA0010]
+  fpr_note: 允许列表（可调）：pip 装包（pypi.org/files.pythonhosted.org）、模型拉取（huggingface.co/cdn-lfs*.hf.co）、常见镜像（ mirrors.aliyun.com、mirrors.tuna.tsinghua.edu.cn 等）与内网代理是高频合法外连——DSL 在 connect 事件上只有 IP（域名在 dns 事件，跨事件关联 G5 排 v2），无 CIDR（G20），确认后的合法目的按 `and not network.dip in (ip1, ip2, ...)` 逐字面量追加；回环（127.0.0.1/::1）已豁免——本地 vLLM/TGI 服务间调用、jupyter 调试不命中，代价是"本机代理跳板外发"不覆盖（同 mining 规则的刻意取舍）；内网网段噪声大时按现场追加 RFC1918 网关/镜像站 IP
+  response: 提取 dip:dport 反查归属（威胁情报/TLS SNI 历史/同时段 dns 事件）；确认进程会话上下文（jupyter/训练脚本/推理服务）与数据访问面；确认外发则阻断连接、评估泄露数据范围并溯源入口
+
+# ai-cuda-inject：非 AI 进程加载 CUDA 用户态库（T1055 劫持/注入嫌疑；特征与 W5 D2 ai_workload 判定同源：maps 内含 /libcuda.so 或 /libnvidia-ml.so）
+- rule: AI Cuda Inject
+  desc: 非白名单进程读取/mmap NVIDIA 用户态驱动库（libcuda.so/libnvidia-ml.so），疑似 CUDA 环境劫持、注入或 GPU 资源盗用（无卡挖矿/利用 GPU 逃逸检测）；特征口径与 W5 D2 ai_workload 判定共用（/proc/pid/maps 含 /libcuda.so、/libnvidia-ml.so，含 .so.<ver> 后缀），不新造特征；condition 内 `in` 字面量专职触发 inode 自动登记（W7 D1，contains 不登记，G6）——机器上不存在的路径加载期 warn 降级（G18），不影响已存在路径生效
+  condition: event_type in (file.read, file.mmap) and (file.path contains /libcuda.so or file.path contains /libnvidia-ml.so or file.path in (/usr/lib/x86_64-linux-gnu/libcuda.so.1, /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1, /usr/lib64/libcuda.so.1, /usr/lib64/libnvidia-ml.so.1, /tmp/bg-attack-cases/fakelib/libcuda.so.1)) and not process.comm startswith python and not process.comm startswith nvidia and not process.comm in (torchserve, tritonserver, nvtop, dcgm-exporter, Xorg)
+  output: "非 AI 进程加载 CUDA 库 (rule=%rule.name comm=%process.comm exe=%process.exe pid=%process.pid uid=%process.uid file=%file.path event=%event_type container=%container.container_id)"
+  priority: high
+  attack: [T1055, TA0005]
+  fpr_note: 白名单边界：python*（训练/推理）、nvidia*（nvidia-smi、nvidia-persistenced——comm 15 字符截断为 nvidia-persiste，startswith nvidia 覆盖）、torchserve/tritonserver/nvtop/dcgm-exporter/Xorg 豁免；comm 可伪造（攻击者改名 nvidia-* 或 python* 即绕过，G21 取舍）——白名单是降噪而非信任边界；G6 残余：机器上 libcuda 实际安装路径若不在 `in` 字面量名单（如 /usr/local/cuda/ 自定义安装），需把该路径补进 in 列表才会登记产事件；无 GPU 机器上真实驱动路径 warn 降级，替身路径（/tmp/bg-attack-cases/fakelib/）验证命中路径
+  response: 确认加载进程身份与祖先链（正常 CUDA 用户应能被资产侧 ai_workload 信号解释）；提取其 maps 全量核对加载面（是否还拉了可疑 .so）；确认恶意后冻结进程、查 GPU 上运行的陌生 kernel（nvidia-smi 旁证）与持久化项
+
+# ai-gpu-device-access：非白名单进程打开 /dev/nvidia*（T1200 硬件资源）
+- rule: AI Gpu Device Access
+  desc: 非白名单进程打开 NVIDIA GPU 设备节点（/dev/nvidia*：字符设备控制面与显存通道），疑似未授权 GPU 使用（盗算/直读写显存）；startswith 提供前向覆盖，in 字面量专职触发 inode 自动登记（W7 D1）——无 GPU 机器上真实节点不存在，加载期 warn 降级（G18），用替身路径（/tmp/bg-attack-cases/dev/nvidia0）验证命中路径
+  condition: event_type in (file.read, file.write) and (file.path startswith /dev/nvidia or file.path in (/dev/nvidiactl, /dev/nvidia-uvm, /dev/nvidia-uvm-tools, /dev/nvidia0, /dev/nvidia1, /dev/nvidia2, /dev/nvidia3, /tmp/bg-attack-cases/dev/nvidia0)) and not process.comm startswith python and not process.comm startswith nvidia and not process.comm in (torchserve, tritonserver, nvtop, Xorg)
+  output: "非白名单进程访问 GPU 设备 (rule=%rule.name comm=%process.comm exe=%process.exe pid=%process.pid uid=%process.uid file=%file.path event=%event_type container=%container.container_id)"
+  priority: high
+  attack: [T1200]
+  fpr_note: 白名单边界同 ai-cuda-inject（python*/nvidia*/torchserve/tritonserver/nvtop/Xorg；G23 缺口与 comm 可伪造取舍同样适用）；GPU 桌面环境的显示服务（Xorg/wayland 合成器）已按 comm 豁免，其它显示栈（如含 nvidia 字样的自研代理）按 comm 追加；容器内访问宿主机 GPU 节点（--gpus 透传）会命中——确认容器业务属性后按 container_id 建例外（v1 无镜像字段，同 docker 规则的既有取舍）
+  response: 确认进程业务授权（该主机 GPU 应服务哪些 workload）；核对 nvidia-smi 进程列表与告警进程是否一致（不一致即有隐藏使用者）；确认盗用则冻结进程、审计显存可能接触的数据面并溯源入口

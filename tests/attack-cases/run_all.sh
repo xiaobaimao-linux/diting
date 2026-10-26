@@ -1,5 +1,5 @@
 #!/bin/bash
-# 攻击用例库批量执行：启动 monitor，30 个用例连跑 2 遍，输出 PASS/FAIL 汇总。
+# 攻击用例库批量执行：启动 monitor，36 个用例连跑 2 遍，输出 PASS/FAIL 汇总。
 # 用法: sudo -n bash tests/attack-cases/run_all.sh        （需要 root：加载 eBPF + 部分攻击动作用 root）
 # 退出码: 0 = 全部用例 × 2 轮 PASS；1 = 有失败项。
 set -u
@@ -23,7 +23,10 @@ CASES="case-01-reverse-shell case-02-read-etc-shadow case-03-chmod-777 \
        case-23-mining-pool-port-connect case-24-mining-pool-dns \
        case-25-mining-binary-exec case-26-mining-shm-exec \
        case-27-evasion-clear-security-log case-28-evasion-stop-audit-service \
-       case-29-evasion-chattr-immutable case-30-evasion-kill-security-tool"
+       case-29-evasion-chattr-immutable case-30-evasion-kill-security-tool \
+       case-31-ai-model-file-read case-32-ai-model-file-delete \
+       case-33-ai-model-dir-access case-34-ai-workload-outbound \
+       case-35-ai-cuda-inject case-36-ai-gpu-device-access"
 
 cd "$ROOT_DIR"
 mkdir -p "$WORK_DIR"
@@ -85,6 +88,17 @@ cat > "$WORK_DIR/auth.log-copy" <<'EOF'
 Oct 12 00:00:01 host sshd[1000]: Server listening on 0.0.0.0 port 22.
 EOF
 printf 'reboot~test\n' > "$WORK_DIR/wtmp-copy"
+# W8 S2 AI 专项用例的测试替身（同样必须先于 monitor 启动创建：DSL 规则 in 字面量在
+# 加载期自动登记 inode；均为普通假文件，不碰真实模型仓库/GPU 设备/CUDA 库。
+# victim-rename.pt 若上轮异常中断停留在 .bak 名，先改回再原地重写，保证登记一致）
+mkdir -p "$WORK_DIR/models" "$WORK_DIR/unmanaged" "$WORK_DIR/fakelib" "$WORK_DIR/dev"
+[ -f "$WORK_DIR/unmanaged/victim-rename.pt.bak" ] && mv -f "$WORK_DIR/unmanaged/victim-rename.pt.bak" "$WORK_DIR/unmanaged/victim-rename.pt"
+printf 'fake-gguf-weights\n' > "$WORK_DIR/models/model.gguf"
+printf '{"arch":"w8s2-test"}\n' > "$WORK_DIR/models/config.json"
+printf 'fake-safetensors-weights\n' > "$WORK_DIR/unmanaged/victim-read.safetensors"
+printf 'fake-pt-weights\n' > "$WORK_DIR/unmanaged/victim-rename.pt"
+printf 'fake-cuda-driver-lib\n' > "$WORK_DIR/fakelib/libcuda.so.1"
+printf 'fake-nvidia-device-node\n' > "$WORK_DIR/dev/nvidia0"
 # /root/.ssh/id_rsa 不存在时生成临时假密钥，cleanup 会删除
 if [ ! -f /root/.ssh/id_rsa ]; then
     mkdir -p /root/.ssh && chmod 700 /root/.ssh

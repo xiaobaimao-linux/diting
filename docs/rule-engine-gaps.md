@@ -144,3 +144,15 @@
 - 现状：`network.sip/dip` 为点分文本 string，比较仅 `=`/`!=`/`in`/`contains`/`startswith`；无 CIDR 匹配（如 `network.dip in 10.0.0.0/8`）。
 - 影响：`mining-pool-port-connect` 想"排除内网/回环"只能 `and not network.dip in (127.0.0.1, ...)` 逐 IP 枚举，回环段 127.0.0.0/8 枚举世不可行；最终选型"端口匹配不强制外网 IP"（理由见该规则 desc：回环白名单会放行本地代理跳板挖矿路径）。
 - v2 方向：加 `cidr` 操作符或 startswith 按段近似（`network.dip startswith 10.` 已可表达但语义粗糙，点分文本前缀与子网不对齐）。
+
+## G22 DSL 无法引用 config 字段（规则与 asset.model_scan_dirs 等不同源）
+
+- 现状（W8 S2 登记）：DSL v1 无宏/变量（rule-dsl-v1.md §4 已声明），规则的 condition 字面量无法引用 config.yaml 的字段。`ai-model-dir-access` 的目录列表（/data、/models、~/.cache/huggingface）人工对齐 `asset.model_scan_dirs` 默认值，**改 config 必须手工同步规则**，二者漂移时目录采集面与检测面不一致（采集到的资产目录不产生告警，或反之）。
+- 影响：同源配置的实际需求会随规则包扩大持续增长（白名单、域名列表同款诉求）。
+- v2 方向：规则加载期支持有限的 config 引用（如 `{{config.asset.model_scan_dirs}}` 展开为 in/startswith 列表），或规则清单由 config 生成器产出。
+
+## G23 DSL 无 ai_workload 资产判定（进程身份白名单只能 comm/exe 近似）
+
+- 现状（W8 S2 登记）：ai_workload 标记（W5 D2）落在 assets 表 detail_json，事件 payload 无该字段，DSL condition 无法查询资产库。"AI 标记进程豁免/命中"只能按 comm 集合近似（python*/torchserve/tritonserver 等）——ai_workload=true 但 comm 不在名单的自研推理进程仍命中模型保护规则（误报），comm 改名为 python* 的攻击进程被豁免（漏报，G21 已声明 comm 可伪造取舍）。
+- 影响：AI 专项规则包 6 条全部按 comm 近似编写，fpr_note 逐条声明了白名单边界。
+- v2 方向：EventView 富化时注入 ai_workload 布尔（消费线程查 BoostCache 同款缓存），DSL 增加 `process.ai_workload` 字段；告警侧 W6 D4 已有资产查询链路可复用。
