@@ -205,18 +205,23 @@ void process_monitor_stop(struct proc_watch_bpf *skel, struct ring_buffer *rb)
     if (!skel)
         return;
 
-    // 汇总 per-CPU proc_drop_stats 上报丢包数
+    // 汇总 per-CPU proc_drop_stats 上报丢包数（遍历全部槽位；
+    // 此前固定读 key=0（BACKPRESSURE 槽，proc_watch 从不用），reserve 失败丢包被漏报——
+    // W8 S3 case-07 竞态专查发现）
     int fd = bpf_map__fd(skel->maps.proc_drop_stats);
     int ncpu = libbpf_num_possible_cpus();
     if (fd >= 0 && ncpu > 0) {
         std::vector<__u64> values(ncpu);
-        __u32 key = 0;
-        if (bpf_map_lookup_elem(fd, &key, values.data()) == 0) {
+        for (__u32 key = 0; key < DROP_STATS_SLOTS; key++) {
+            if (bpf_map_lookup_elem(fd, &key, values.data()) != 0)
+                continue;
             __u64 total = 0;
             for (int i = 0; i < ncpu; i++)
                 total += values[i];
-            if (total > 0)
+            if (total > 0 && key == DROP_SLOT_RESERVE_FAIL)
                 spdlog::warn("[proc_watch] {} process events dropped (ring buffer reserve failed)", total);
+            else if (total > 0 && key == DROP_SLOT_DISCARDED)
+                spdlog::warn("[proc_watch] {} process events discarded after reserve", total);
         }
     }
 

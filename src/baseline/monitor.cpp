@@ -1524,8 +1524,32 @@ static void eval_rules_on_exec_event(const struct proc_event& pe, TelemetryRunti
     fill_ancestors_view(anc, view.ancestors);
 
     detect::MatchResult m;
-    if (!engine->Evaluate(view, m))
-        return;
+    // W8 S3 case-07 竞态修复兜底用：事件自带 filename（exec 时刻 tracepoint 捕获，
+    // 无 /proc 再 exec 竞态）；声明在函数作用域，保证 view.exe 引用存活至告警发送
+    const std::string event_exe(pe.exe, strnlen(pe.exe, sizeof(pe.exe)));
+    if (!engine->Evaluate(view, m)) {
+        // W8 S3 case-07 竞态修复：exe 取自消费时 /proc/<pid>/exe 解析，短寿进程
+        // 原地再 exec（如 bash -c <cmd> 的末命令优化，同 pid 连续两次 exec）时，
+        // 消费侧读到的是再 exec 之后的新映像（实测 bash exec 事件被渲染成
+        // /usr/bin/id），导致 exe 名单类规则漏报。事件自带的 pe.exe 是
+        // tracepoint 在 exec 时刻捕获的 filename，无此竞态；未命中且两者
+        // 不一致时以 pe.exe 复评一次（G8 单命中不受影响：仅在未命中时复评）。
+        if (event_exe.empty() || event_exe == exe) {
+            if (exe.find("bash") != std::string::npos ||
+                exe.find("/sh") != std::string::npos ||
+                exe.find("dash") != std::string::npos) {
+                spdlog::debug("[exec_eval] shell miss: exe={} comm={} ppid={} anc={}",
+                              exe, view.comm, pe.ppid, anc.dump());
+            }
+            return;
+        }
+        spdlog::info("[exec_eval] exe 竞态兜底复评: resolved={} event={} pid={}",
+                     exe, event_exe, pe.pid);
+        view.exe = event_exe;
+        if (!engine->Evaluate(view, m))
+            return;
+        exe = event_exe;
+    }
 
     send_dsl_alert(*m.rule, m.output, view, exe, cached_user_name(uid),
                    anc.empty() ? std::string() : anc.dump(), rt->alert_mgr);

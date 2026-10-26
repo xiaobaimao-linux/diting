@@ -15,7 +15,7 @@
 | case-04 | 容器内执行 docker 命令 | 容器挂载 docker.sock 执行 `docker ps` | 容器内 process.exec ×≥1，container_id 为 12 位短 ID。**已知边界**：net_watch 只覆盖 TCPv4+DNS，AF_UNIX 连接无网络事件，以 exec 链+容器归属为判定信号 | 容器 --rm 自清理 |
 | case-05 | 敏感路径批量读取 | root 下循环 `cat /etc/shadow /etc/gshadow /root/.ssh/id_rsa` | 每个文件各 ≥1 条 file.read，进程链完整（exe 非空 + ancestors ≥1）；AC-05A/05B alerts ×≥2（shadow 告警与 case-02 共用规则/节流窗口，见实测发现 5） | 假密钥由 run_all 统一删 |
 | case-06 | 容器内篡改挂载的基线文件（M0-1 验收） | 容器挂载受保护文件并追加写入 | alerts 带容器短 ID（container_id 非空）；file.write 事件带同样 container_id | 恢复文件内容 |
-| case-07 | 反弹 shell（解释器派生） | python3 连接 127.0.0.1:4407 监听并 `subprocess.run` 派生 bash | alerts `dsl.exec_reverse_shell_under_interpreter` ×≥1 | 杀掉 nc 监听 |
+| case-07 | 反弹 shell（解释器派生） | python3 连接 127.0.0.1:4407 监听并 `subprocess.run` 派生 bash | alerts `dsl.exec_reverse_shell_under_interpreter` ×≥1（W8 S3 根治竞态：`bash -c id` 原地再 exec 使 /proc 富化读到的 exe 变成 id，eval 未命中时以事件自带 pe.exe 复评兜底，见 rule-engine-gaps G24） | 杀掉 nc 监听 |
 | case-08 | 双用途网络工具执行 | `nc` 连接 127.0.0.1:4408 本地监听 | alerts `dsl.exec_reverse_shell_dual_use_tool` ×≥1 | 杀掉 nc 监听 |
 | case-09 | 临时目录执行无扩展名二进制 | `/tmp` 下复制 /bin/echo 为 tmpexe 并执行 | alerts `dsl.exec_suspicious_tmp_binary` ×≥1 | 删除 tmpexe |
 | case-10 | webshell（web 服务派生 shell） | bash 副本改名 nginx（comm 伪造）派生 `/bin/bash -c id` | alerts `dsl.exec_webspawner_shell` ×≥1 | 删除 nginx 副本 |
@@ -158,6 +158,11 @@ bash tests/attack-cases/case-02-read-etc-shadow/verify.sh my-tag
 
 ## 已知边界
 
+- **case-06 偶发 flake（W8 S3 记录）**：与 case-07 同族的"消费时 /proc 富化竞态"，但对手是
+  **进程退出**而非再 exec——容器内 `sh`（echo 为内建命令，写完即退）存活仅毫秒级，exec 事件
+  消费滞后于进程退出时，`container_id_of(pid)` 读 /proc/<pid>/cgroup 失败，告警/事件的
+  container_id 为空。与内核丢包无关。根治方向同 G24：内核侧事件时刻捕获容器归属
+  （task cgroups），或 fork 事件即填 container_id 缩小窗口（仍属竞态缓解非根治）。
 - **case-04**：AF_UNIX socket 连接（docker.sock）不在 net_watch 覆盖范围（当前仅 TCPv4 connect/accept/bind + DNS）。
   判定信号为容器内 exec 链 + 祖先链容器运行时归属；unix 连接遥测、exec 事件 container_id 富化是后续迭代项。
 - exec 事件的 argv/cmdline 采集在 W2 时列为边界，若仍未采集，反弹 shell 的命令行内容不可见，用 connect 事件做唯一性判定。

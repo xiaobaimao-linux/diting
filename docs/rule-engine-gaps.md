@@ -156,3 +156,17 @@
 - 现状（W8 S2 登记）：ai_workload 标记（W5 D2）落在 assets 表 detail_json，事件 payload 无该字段，DSL condition 无法查询资产库。"AI 标记进程豁免/命中"只能按 comm 集合近似（python*/torchserve/tritonserver 等）——ai_workload=true 但 comm 不在名单的自研推理进程仍命中模型保护规则（误报），comm 改名为 python* 的攻击进程被豁免（漏报，G21 已声明 comm 可伪造取舍）。
 - 影响：AI 专项规则包 6 条全部按 comm 近似编写，fpr_note 逐条声明了白名单边界。
 - v2 方向：EventView 富化时注入 ai_workload 布尔（消费线程查 BoostCache 同款缓存），DSL 增加 `process.ai_workload` 字段；告警侧 W6 D4 已有资产查询链路可复用。
+
+## G24 exec 事件 exe 富化与进程再 exec 竞态（/proc 读到的是再 exec 后的新映像）
+
+- 根因（W8 S3 case-07 专查定位）：`process.exe` 富化在消费线程读 /proc/<pid>/exe 解析，
+  短寿进程原地再 exec（`bash -c <cmd>` 的末命令优化，同 pid 连续两次 exec）时，消费侧
+  读到的是再 exec 之后的新映像——实测 case-07 的 bash exec 事件被渲染成 /usr/bin/id，
+  exe 名单类规则（under_interpreter 等）间歇漏报，事件落库与祖先链均正常。
+  内核侧无丢包（proc reserve_failed=0），不是传输层问题。
+- 修复（2026-10-26）：eval_rules_on_exec_event 未命中且事件自带 pe.exe（exec 时刻
+  tracepoint filename，无竞态）与解析结果不一致时，以 pe.exe 复评一次（G8 单命中不受
+  影响）。落库渲染维持 /proc 解析优先（G21 语义不变），竞态窗口内落库的 exe 可能是
+  再 exec 后的新映像，属已知残留边界。
+- v2 方向：BPF 侧在 LSM bprm_check / tracepoint 上下文用 bpf_d_path 取 exec 时刻的
+  解析后路径随事件携带，用户态不再事后读 /proc。
