@@ -99,6 +99,11 @@ MAIN_SRCS = src/main.cpp \
             src/storage/baseline_db.cpp \
             src/storage/event_store.cpp
 MONITOR_SRC = src/baseline/monitor.cpp \
+              src/baseline/monitor_rules.cpp \
+              src/baseline/monitor_file.cpp \
+              src/baseline/monitor_dsl.cpp \
+              src/baseline/monitor_telemetry.cpp \
+              src/baseline/monitor_paths.cpp \
               src/baseline/monitor_network.cpp \
               src/baseline/monitor_privilege.cpp \
               src/baseline/monitor_process.cpp \
@@ -169,8 +174,8 @@ $(BPF_PROC_SKEL): $(BPF_PROC_OBJ)
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-# monitor 依赖生成的 skeleton 头文件
-src/baseline/monitor.o: src/baseline/monitor.cpp $(BPF_SKEL) $(BPF_SKEL_PERF) $(BPF_KPROBE_SKEL)
+# monitor_paths 依赖生成的 skeleton 头文件
+src/baseline/monitor_paths.o: src/baseline/monitor_paths.cpp $(BPF_SKEL) $(BPF_SKEL_PERF) $(BPF_KPROBE_SKEL)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # monitor_network 依赖 net_watch skeleton 头文件
