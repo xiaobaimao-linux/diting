@@ -4,7 +4,9 @@
  * 挂点（全部 tracepoint，sched_process_* 系列）：
  *   - tracepoint/sched/sched_process_fork  父进程创建子进程，pid=child_pid，
  *                                          ppid=parent_pid，comm 取子进程名
- *                                          （__data_loc_child_comm，读不到回退父 comm）
+ *                                          （新旧两种 raw 布局自适应：__data_loc
+ *                                          版按偏移读，定长数组版按固定偏移读，
+ *                                          读不到回退父 comm）
  *   - tracepoint/sched/sched_process_exec  进程映像替换，pid=当前进程，
  *                                          exe 尽力读 tracepoint filename（未解析
  *                                          相对路径），start_time 取 task start_time
@@ -109,17 +111,39 @@ int tp_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx)
 
     fill_task_meta(e);
     e->kind = PROC_KIND_FORK;
-    e->pid  = (__u32)ctx->child_pid;
-    e->ppid = (__u32)ctx->parent_pid;
 
-    /* 子进程名：__data_loc_child_comm 低 16 位为相对条目起始的偏移；
-     * 读到即覆盖父 comm，失败保留 fill_task_meta 已填的父 comm */
-    off = ctx->__data_loc_child_comm & 0xFFFF;
-    if (off) {
-        if (bpf_probe_read_kernel_str(e->comm, sizeof(e->comm),
-                                      (void *)ctx + off) < 0)
-            bpf_get_current_comm(e->comm, sizeof(e->comm));
+    /* tracepoint raw 结构体在不同内核上是两种布局（实测）：
+     *   新（如 7.0）：ent(0) __data_loc_parent_comm(8) parent_pid(12)
+     *                 __data_loc_child_comm(16) child_pid(20)
+     *   旧（如 6.8）：ent(0) parent_comm[16](8) parent_pid(24)
+     *                 child_comm[16](28) child_pid(44)
+     * 且旧内核 BTF 可能不含该结构体（6.8 实测 exit 结构体整个缺失），
+     * 任何按名字的 CO-RE 字段重定位都可能在某一侧解析失败、毒化整个 prog
+     * （load -22）。故布局判定用 bpf_core_field_exists（缺失安全解析为 0），
+     * 字段读取一律 bpf_probe_read_kernel* + 手工偏移（tracefs format 实测），
+     * 本 prog 不产生任何 raw 结构体字段重定位。 */
+    __u32 child_pid = 0, parent_pid = 0;
+
+    if (bpf_core_field_exists(ctx->__data_loc_child_comm)) {
+        __u32 dl = 0;
+
+        bpf_probe_read_kernel(&parent_pid, sizeof(parent_pid), (void *)ctx + 12);
+        bpf_probe_read_kernel(&child_pid, sizeof(child_pid), (void *)ctx + 20);
+        bpf_probe_read_kernel(&dl, sizeof(dl), (void *)ctx + 16);
+        /* __data_loc_child_comm 低 16 位为相对条目起始的偏移 */
+        off = dl & 0xFFFF;
+        if (off) {
+            if (bpf_probe_read_kernel_str(e->comm, sizeof(e->comm),
+                                          (void *)ctx + off) < 0)
+                bpf_get_current_comm(e->comm, sizeof(e->comm));
+        }
+    } else {
+        bpf_probe_read_kernel(&parent_pid, sizeof(parent_pid), (void *)ctx + 24);
+        bpf_probe_read_kernel(&child_pid, sizeof(child_pid), (void *)ctx + 44);
+        bpf_probe_read_kernel_str(e->comm, sizeof(e->comm), (void *)ctx + 28);
     }
+    e->pid  = child_pid;
+    e->ppid = parent_pid;
 
     bpf_ringbuf_submit(e, 0);
     inc_proc_emitted_count();
@@ -146,8 +170,13 @@ int tp_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx)
     fill_task_meta(e);
     e->kind = PROC_KIND_EXEC;
 
-    /* __data_loc_filename 低 16 位为 filename 相对条目起始的偏移 */
-    off = ctx->__data_loc_filename & 0xFFFF;
+    /* __data_loc_filename 低 16 位为 filename 相对条目起始的偏移。
+     * 手工偏移 8（两版内核一致，见 fork 处布局说明）：旧内核 BTF 可能不含
+     * 本结构体，按名重定位会毒化 prog，一律 probe_read。 */
+    __u32 dl = 0;
+
+    bpf_probe_read_kernel(&dl, sizeof(dl), (void *)ctx + 8);
+    off = dl & 0xFFFF;
     if (off)
         bpf_probe_read_kernel_str(e->exe, sizeof(e->exe), (void *)ctx + off);
 
@@ -173,13 +202,16 @@ int tp_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx)
 }
 
 /* ── exit：进程退出 ──────────────────────────────────────────────
- * ctx->pid 即当前进程 pid（线程组视角与 fill_task_meta 的 pid 一致）；
+ * pid 取 tracepoint 的 pid 字段（线程组视角与 fill_task_meta 一致）；
  * exe 留空（退出路径上 /proc/<pid>/exe 已不可读，消费线程无法补）。
+ * pid 用手工偏移 24（两版内核一致；旧内核 BTF 可能整个不含本结构体，
+ * 按名重定位会毒化 prog，见 fork 处布局说明）。
  */
 SEC("tracepoint/sched/sched_process_exit")
 int tp_sched_process_exit(struct trace_event_raw_sched_process_exit *ctx)
 {
     struct proc_event *e;
+    __u32 pid = 0;
 
     e = reserve_proc_event();
     if (!e)
@@ -187,7 +219,8 @@ int tp_sched_process_exit(struct trace_event_raw_sched_process_exit *ctx)
 
     fill_task_meta(e);
     e->kind = PROC_KIND_EXIT;
-    e->pid  = (__u32)ctx->pid;
+    bpf_probe_read_kernel(&pid, sizeof(pid), (void *)ctx + 24);
+    e->pid = pid;
 
     bpf_ringbuf_submit(e, 0);
     inc_proc_emitted_count();
