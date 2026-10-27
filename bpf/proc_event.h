@@ -15,6 +15,9 @@
 // 便捷获得，填 0，由消费线程读 /proc/<pid>/stat 补齐（尽力）。
 // cmdline 仅 exec 事件填充（mm->arg_start..arg_end 原始 NUL 分隔字节，
 // ≤255 字节截断，渲染为空格拼接由用户态负责）；fork/exit 保持空。
+// cgroup_name 为事件时刻 cgroup v2 叶子目录名（kernfs_node->name，≤63 字节
+// 截断），fork（读子任务）/exec（读当前任务）填充，exit 为空；用户态据此
+// 解析容器 ID，避免短寿进程 /proc/<pid>/cgroup 事后读取的竞态。
 struct proc_event {
     unsigned long long ts_ns;
     unsigned int pid;            // fork=子进程  exec/exit=当前进程
@@ -27,6 +30,14 @@ struct proc_event {
     char comm[16];               // 不保证 NUL 结尾
     char exe[256];               // exec 尽力（tracepoint filename），其余为空
     char cmdline[256];           // exec：NUL 分隔 argv 原始字节（≤255），其余为空
+    char cgroup_name[64];        // cgroup v2 叶子目录名，宿主机进程亦填充
 };
+
+// payload 上限见 src/telemetry/event_record.hpp kRecordPayloadCap（640B）
+#ifdef __cplusplus
+static_assert(sizeof(struct proc_event) <= 640, "proc_event exceeds record payload cap");
+#else
+_Static_assert(sizeof(struct proc_event) <= 640, "proc_event exceeds record payload cap");
+#endif
 
 #endif

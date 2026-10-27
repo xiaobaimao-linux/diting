@@ -4,6 +4,10 @@
 # 退出码: 0 = 全部用例 × 2 轮 PASS；1 = 有失败项。
 set -u
 
+# 以 root 跑 monitor 会在 /var/log/diting、/var/lib/diting 留下 root 属主文件，
+# 退出时统一回收属权，裸跑本脚本无需前置/事后手工 chown
+trap 'chown -R "${SUDO_USER:-sf}":"${SUDO_USER:-sf}" /var/log/diting /var/lib/diting 2>/dev/null || true' EXIT
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK_DIR="/tmp/bg-attack-cases"
 LOG="${WORK_DIR}/monitor.log"
@@ -162,6 +166,11 @@ for i in $(seq 1 20); do
 done
 kill -0 "$(cat "$PIDFILE")" 2>/dev/null && { kill -KILL "$(cat "$PIDFILE")"; echo "WARN: monitor 未能优雅退出"; }
 rm -f "$PIDFILE"
+
+echo ""
+echo "=== 回收 root 属主文件属权 ==="
+chown -R "${SUDO_USER:-sf}":"${SUDO_USER:-sf}" /var/log/diting /var/lib/diting 2>/dev/null || true
+ls -ld /var/log/diting /var/lib/diting | awk '{print $3":"$4, $NF}'
 
 echo ""
 echo "=== 清理临时假密钥 ==="

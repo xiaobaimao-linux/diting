@@ -48,10 +48,10 @@
 
 ### 攻击用例层（tests/attack-cases/README.md §已知边界）
 
-- **case-06 flake（进程退出竞态）**：容器内毫秒级短寿进程的 container_id 富化读 /proc 竞态，
-  告警/事件 container_id 间歇为空（W8 周检实测间歇 ~50%：r1 FAIL、r2 PASS、重跑 1 PASS 1 FAIL）。
-  与内核丢包无关。根治排 W9 D1–D3（内核侧事件时刻捕获 task cgroups），见
-  `docs/integration-test-plan-w9.md` §4。
+- **case-06（W9 S1 已根治）**：原为容器内毫秒级短寿进程的 container_id 富化 /proc 竞态
+  （W8 周检实测间歇 ~50%）。W9 S1 已按预定方向根治：fork/exec 事件内核侧捕获 cgroup
+  叶子名随事件携带，用户态不再事后读 /proc 为主路径；连跑 10 遍全过，详见
+  `docs/integration-test-plan-w9.md` §4 与 `tests/attack-cases/README.md` 已知边界节。
 - **case-04 AF_UNIX 边界**：net_watch 只覆盖 TCPv4 connect/accept/bind + DNS，docker.sock
   等 AF_UNIX 连接无网络事件；容器场景判定信号为 exec 链 + 祖先链容器运行时归属。
 - **argv/cmdline 边界**：exec cmdline 前 255 字节已采集（G19，W8 S1），但 shell 内建命令

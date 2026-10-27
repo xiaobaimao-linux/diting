@@ -22,6 +22,43 @@ static proc_event make_event(unsigned char kind, unsigned int pid, unsigned int 
     return pe;
 }
 
+// 测试用全量容器 ID（64 hex），短 ID 为前 12 位
+static const char* kTestFullId =
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+static const char* kTestShortId = "0123456789ab";
+
+// ====== CG-001: cgroup 叶子目录名解析容器短 ID ========================
+static void test_parse_cgroup_name() {
+    // docker systemd 驱动：docker-<64hex>.scope
+    assert(parse_container_id_from_cgroup_name(
+               std::string("docker-") + kTestFullId + ".scope") == kTestShortId);
+    // docker cgroupfs 驱动：裸 64 hex
+    assert(parse_container_id_from_cgroup_name(kTestFullId) == kTestShortId);
+    // containerd：cri-containerd-<64hex>(.scope)
+    assert(parse_container_id_from_cgroup_name(
+               std::string("cri-containerd-") + kTestFullId + ".scope") == kTestShortId);
+    assert(parse_container_id_from_cgroup_name(
+               std::string("cri-containerd-") + kTestFullId) == kTestShortId);
+    // crio：crio-<64hex>(.scope)
+    assert(parse_container_id_from_cgroup_name(
+               std::string("crio-") + kTestFullId + ".scope") == kTestShortId);
+    assert(parse_container_id_from_cgroup_name(
+               std::string("crio-") + kTestFullId) == kTestShortId);
+    // 截断容忍：64B 事件字段截断的 systemd scope 名（docker- + 56 hex）仍可解析
+    assert(parse_container_id_from_cgroup_name(
+               (std::string("docker-") + kTestFullId + ".scope").substr(0, 63)) == kTestShortId);
+    // 非容器名 / 过短 hex / 空串 / 非法后缀 / 含非 hex 字符：均返回空
+    assert(parse_container_id_from_cgroup_name("system.slice").empty());
+    assert(parse_container_id_from_cgroup_name("user.slice").empty());
+    assert(parse_container_id_from_cgroup_name("docker-0123456789a.scope").empty());
+    assert(parse_container_id_from_cgroup_name("").empty());
+    assert(parse_container_id_from_cgroup_name(
+               std::string("docker-") + kTestFullId + ".scopex").empty());
+    assert(parse_container_id_from_cgroup_name("0123456789ab").size() == 12);
+    assert(parse_container_id_from_cgroup_name("0123abcdefg8ab").empty());
+    printf("  [PASS] CG-001: cgroup 名解析 docker scope/cgroupfs/containerd/crio/非容器\n");
+}
+
 // ====== PT-001: bootstrap 存储 uid/gid（与 /proc 一致）+ 容器字段一致 ======
 static void test_bootstrap_identity() {
     ProcessTree tree;
@@ -47,13 +84,14 @@ static void test_bootstrap_identity() {
     printf("  [PASS] PT-001: bootstrap 存储 uid/gid + 容器字段与 /proc 一致\n");
 }
 
-// ====== PT-002: fork 事件存 uid/gid，不填 container_id（等 exec）========
+// ====== PT-002: fork 事件存 uid/gid；事件 cgroup_name 非容器名时容器留空 ====
 static void test_fork_stores_uid_gid() {
     ProcessTree tree;
     proc_event pe = make_event(PROC_KIND_FORK, 4242420, 1);
     pe.uid = 1000;
     pe.gid = 1001;
     strcpy(pe.comm, "forktest");
+    strcpy(pe.cgroup_name, "system.slice");  // 非容器名：解析为空，fake pid 回落 /proc 亦失败
     tree.apply(pe);
 
     const ProcNode* node = tree.find(pe.pid);
@@ -61,8 +99,8 @@ static void test_fork_stores_uid_gid() {
     assert(node->uid == 1000 && node->gid == 1001);
     assert(node->ppid == 1);
     assert(node->comm_str() == "forktest");
-    assert(node->container_id_str().empty());  // fork 不填，等 exec
-    printf("  [PASS] PT-002: fork 存 uid/gid、container_id 留空\n");
+    assert(node->container_id_str().empty());
+    printf("  [PASS] PT-002: fork 存 uid/gid、非容器 cgroup 名时 container_id 留空\n");
 }
 
 // ====== PT-003: exec 更新 uid/gid + container_id（已有节点 + 就地补建）====
@@ -144,13 +182,46 @@ static void test_tombstone_findable() {
     printf("  [PASS] PT-005: tombstone 可查且保留身份字段、sweep 不误删\n");
 }
 
+// ====== PT-006: 事件自带 cgroup_name 优先（fake pid 无 /proc，纯事件路径）==
+static void test_event_cgroup_name_priority() {
+    ProcessTree tree;
+
+    // fork：事件 cgroup_name 携带 docker scope 名，直接落节点容器短 ID
+    // （pid 不存在于 /proc，证明不依赖事后 /proc 读取——case-06 竞态根治路径）
+    proc_event fork_e = make_event(PROC_KIND_FORK, 4242424, 1);
+    strcpy(fork_e.comm, "sh");
+    snprintf(fork_e.cgroup_name, sizeof(fork_e.cgroup_name), "docker-%s.scope", kTestFullId);
+    tree.apply(fork_e);
+    const ProcNode* node = tree.find(4242424);
+    assert(node != nullptr);
+    assert(node->container_id_str() == kTestShortId);
+
+    // exec：同样优先事件 cgroup_name（就地补建分支）
+    proc_event exec_e = make_event(PROC_KIND_EXEC, 4242425, 4242424);
+    exec_e.start_time = 987654321ULL;
+    strcpy(exec_e.comm, "sh");
+    snprintf(exec_e.cgroup_name, sizeof(exec_e.cgroup_name), "crio-%s.scope", kTestFullId);
+    tree.apply(exec_e);
+    const ProcNode* exec_node = tree.find(4242425);
+    assert(exec_node != nullptr);
+    assert(exec_node->container_id_str() == kTestShortId);
+
+    // exec 已有节点：cgroup_name 为空串时回落 /proc（fake pid 失败 → 清空容器归属）
+    exec_e.cgroup_name[0] = '\0';
+    tree.apply(exec_e);
+    assert(tree.find(4242425)->container_id_str().empty());
+    printf("  [PASS] PT-006: 事件 cgroup_name 优先、空串回落 /proc\n");
+}
+
 int main() {
     printf("=== test_process_tree ===\n");
+    test_parse_cgroup_name();
     test_bootstrap_identity();
     test_fork_stores_uid_gid();
     test_exec_fills_identity();
     test_find_by_start_time();
     test_tombstone_findable();
+    test_event_cgroup_name_priority();
     printf("=== all process_tree tests passed ===\n");
     return 0;
 }

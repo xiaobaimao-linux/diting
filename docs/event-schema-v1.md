@@ -92,7 +92,10 @@ fork/exit 只维护进程树，不落库、不可被规则匹配。
 
 ### 3.2 容器归属 `container`
 
-- 仅 `container.container_id`（12 位短 ID），解析自 `/proc/<pid>/cgroup`，识别 docker/cri-containerd/crio（src/common/container.hpp:8）。
+- 仅 `container.container_id`（12 位短 ID）。W9 S1 起主路径为 exec/fork 事件内核侧捕获的
+  cgroup 叶子名（`proc_event.cgroup_name[64]`，bpf/proc_event.h）解析，识别
+  docker(-/.scope)/cri-containerd/crio/裸 hex；事件未携带时兜底解析 `/proc/<pid>/cgroup`
+  （src/common/container.hpp:8）。
 - **无** container name/image 字段。宿主机进程整个 `container` 对象省略——规则引擎须容忍该字段缺失。
 
 ## 4. 已知字段边界（v1）

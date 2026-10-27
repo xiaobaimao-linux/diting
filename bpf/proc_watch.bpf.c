@@ -78,6 +78,20 @@ static __always_inline struct proc_event *reserve_proc_event(void)
     return e;
 }
 
+/* 事件时刻从任务读 cgroup v2 叶子目录名（kernfs_node->name），供用户态
+ * 解析容器 ID（短寿进程事后读 /proc/<pid>/cgroup 存在竞态）；失败留空串。 */
+static __always_inline void fill_cgroup_name(struct proc_event *e,
+                                             struct task_struct *task)
+{
+    struct kernfs_node *kn = BPF_CORE_READ(task, cgroups, dfl_cgrp, kn);
+    if (!kn)
+        return;
+    const char *name = BPF_CORE_READ(kn, name);
+    if (!name)
+        return;
+    bpf_probe_read_kernel_str(e->cgroup_name, sizeof(e->cgroup_name), name);
+}
+
 static __always_inline void fill_task_meta(struct proc_event *e)
 {
     struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
@@ -145,6 +159,10 @@ int tp_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx)
     e->pid  = child_pid;
     e->ppid = parent_pid;
 
+    /* raw tracepoint 上下文无子任务指针；fork tracepoint 触发时子进程
+     * 继承父进程 cgroup（cgroup_post_fork 在其后），读当前任务即父进程。 */
+    fill_cgroup_name(e, (struct task_struct *)bpf_get_current_task_btf());
+
     bpf_ringbuf_submit(e, 0);
     inc_proc_emitted_count();
     return 0;
@@ -195,6 +213,8 @@ int tp_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx)
                 bpf_probe_read_user(e->cmdline, len, (void *)arg_start);
         }
     }
+
+    fill_cgroup_name(e, task);
 
     bpf_ringbuf_submit(e, 0);
     inc_proc_emitted_count();

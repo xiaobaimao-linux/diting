@@ -74,9 +74,9 @@ container_id 为空。内核侧无丢包（reserve_failed=0），与传输层无
 
 | 日 | 内容 | 验收（一句话） |
 |---|---|---|
-| D1 | case-06 复现定位：构造毫秒级容器进程连跑统计 flake 率，确认 /proc 读失败路径 | flake 可稳定复现（≥10%），失败点定位到 container_id_of 读 /proc/<pid>/cgroup |
-| D2 | 根治方案定型：BPF 侧事件时刻读 task cgroups 随事件携带 container_id | 方案评审过线（内核侧捕获），字段随 exec/file 事件下发，用户态不再事后读 /proc |
-| D3 | 修复落地：事件结构 + 渲染/落库链路 + case-06 verify 口径 | case-06 连跑 10 遍 container_id 全非空，G21/G24 语义不回退 |
+| D1 | case-06 复现定位：构造毫秒级容器进程连跑统计 flake 率，确认 /proc 读失败路径 | ✅ 实测 19/20 FAIL，失败点坐实为 container_id_of 读 /proc/<pid>/cgroup |
+| D2 | 根治方案定型：BPF 侧事件时刻读 task cgroups 随事件携带 container_id | ✅ proc_event 加 cgroup_name[64]（sizeof=632≤640），fork/exec 内核侧捕获，用户态 /proc 降为兜底 |
+| D3 | 修复落地：事件结构 + 渲染/落库链路 + case-06 verify 口径 | ✅ case-06 连跑 10 遍全非空；G21/G24 哨兵（case-29/07）各 3 遍不回退；run_all 72/72 ×2 |
 | D4 | 回归：36 用例 ×2 轮 + unit 全绿 | 72/72，unit 全绿，无新增 flake |
 | D5 | 预演正跑 + CIS 40 复跑 + W9 校准纪要 | 准出标准全过（§5），纪要落档 |
 
@@ -108,8 +108,14 @@ monitor 以生产形态可启动（fail-fast 不触发、单实例锁正常、�
 
 1. **中期回收**：W9 中期（D3 前后）各取一次数据点，对照红线 RSS ≤150MB、CPU ≤3%、
    reserve_failed 无增长；数据落进 W9 校准纪要实测表。
-2. **互不干扰**：云主机 soak 不跑攻击用例（攻击回归只在本机实验环境跑），预演侧的任何操作
-   不 ssh 进云主机重启/升级 monitor。
+2. **互不干扰（W9 S1 实测修订）**：云上用例轮实际在 soak 长跑中执行——用例 monitor 以
+   独立 mount 命名空间并存（实例锁 bind/--lock-path、/var/lib/diting、/var/log/diting、
+   /sys/fs/bpf/diting 四处隔离），soak monitor 不重启、不升版本。预演侧仍不得 ssh 上去
+   动 soak 实例本身。
+   **W9 S1 立案：两台云机内核 LSM 启动列表缺 `bpf`**（阿里云定制内核，CONFIG_BPF_LSM=y
+   但 CONFIG_LSM 默认串未含），LSM 探针 attach 成功但永不触发——file 链路自上线起空转。
+   已修：GRUB 加 `lsm=lockdown,capability,landlock,yama,apparmor,bpf` 重启双机
+   （2026-10-27 21:52，soak 时钟重计），重启后 file 事件实测流通。
 3. **异常处置**：soak 期间云主机 monitor 若 crash/被 OOM，按新增 flake 同款 24h 归因政策处理，
    登记后由主线程决定是否重启——预演侧不得擅自处置。
 

@@ -15,7 +15,10 @@ void on_violation_detected(const Rule& rule,
 // skip_boot_check 为 true 时跳过开机全基线核查，直接进入 eBPF 事件监控循环
 // config_path 非空时启用 SIGHUP 热加载：主循环每轮检查标志，成功原子替换
 // 规则表与白名单快照并清缓存，失败保留旧配置（monitor 进程不重启）
+// lock_path 非空时覆盖单实例锁文件路径（默认 /var/run/diting-monitor.lock），
+// 供云上双实例并存场景
 int do_monitor(const Config& config, AlertManager& alert_mgr,
                const std::string& config_path = "",
                const std::string& baseline_db_path = "",
-               bool skip_boot_check = false);
+               bool skip_boot_check = false,
+               const std::string& lock_path = "");

@@ -124,8 +124,9 @@ run_all.sh 做的事：
 1. 前置检查（sudo 凭据、diting、docker）。
 2. 准备用例文件（chmod 目标、受保护基线文件；`/root/.ssh/id_rsa` 不存在时生成临时假密钥并打标）。
 3. 以 `tests/attack-cases/config.yaml` 启动 monitor（LSM 或 kprobe 自动降级），等待 "Monitoring started"。
-4. 30 个用例连跑 2 遍，每遍 run → verify → cleanup；轮间等待 12s 让告警节流（throttle=10s）过期，保证每遍告警都能落库。
-5. SIGTERM 优雅停止 monitor，输出 PASS/FAIL 汇总。退出码 0 = 60 项（30 用例 × 2 轮）全 PASS。
+4. 36 个用例连跑 2 遍，每遍 run → verify → cleanup；轮间等待 12s 让告警节流（throttle=10s）过期，保证每遍告警都能落库。
+5. SIGTERM 优雅停止 monitor，输出 PASS/FAIL 汇总。退出码 0 = 72 项（36 用例 × 2 轮）全 PASS。
+6. 退出时（含中途异常，trap EXIT）自动 `chown -R $SUDO_USER /var/log/diting /var/lib/diting`，裸跑无需前置/事后手工 chown。
 
 单独跑某个用例（monitor 已在运行时）：
 
@@ -158,11 +159,12 @@ bash tests/attack-cases/case-02-read-etc-shadow/verify.sh my-tag
 
 ## 已知边界
 
-- **case-06 偶发 flake（W8 S3 记录）**：与 case-07 同族的"消费时 /proc 富化竞态"，但对手是
-  **进程退出**而非再 exec——容器内 `sh`（echo 为内建命令，写完即退）存活仅毫秒级，exec 事件
-  消费滞后于进程退出时，`container_id_of(pid)` 读 /proc/<pid>/cgroup 失败，告警/事件的
-  container_id 为空。与内核丢包无关。根治方向同 G24：内核侧事件时刻捕获容器归属
-  （task cgroups），或 fork 事件即填 container_id 缩小窗口（仍属竞态缓解非根治）。
+- **case-06（W8 S3 记录，W9 S1 已根治）**：原为"消费时 /proc 富化竞态"，对手是**进程退出**——
+  容器内 `sh`（echo 为内建命令，写完即退）存活仅毫秒级，exec 事件消费滞后于进程退出时
+  `container_id_of(pid)` 读 /proc/<pid>/cgroup 失败，告警/事件的 container_id 为空。
+  W9 S1 根治：fork/exec 事件在内核侧捕获 task 的 cgroup 叶子名随事件携带
+  （proc_event 加 `cgroup_name[64]`），用户态优先解析事件自带值、/proc 仅作兜底；
+  本机连跑 10 遍 container_id 全非空 + run_all 72/72 ×2，云上 6.8/5.15 复核见 W9 S1 报告。
 - **case-04**：AF_UNIX socket 连接（docker.sock）不在 net_watch 覆盖范围（当前仅 TCPv4 connect/accept/bind + DNS）。
   判定信号为容器内 exec 链 + 祖先链容器运行时归属；unix 连接遥测、exec 事件 container_id 富化是后续迭代项。
 - exec 事件的 argv/cmdline 采集在 W2 时列为边界，若仍未采集，反弹 shell 的命令行内容不可见，用 connect 事件做唯一性判定。

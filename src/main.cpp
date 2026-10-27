@@ -278,6 +278,7 @@ int main(int argc, char *argv[]) {
 
     std::string config_path;
     std::string cmd;
+    std::string monitor_lock_path;   // monitor --lock-path 覆盖单实例锁文件（空=默认）
 
     int i = 1;
     while (i < argc) {
@@ -553,11 +554,20 @@ int main(int argc, char *argv[]) {
                     config_path = subarg.substr(std::string("--config=").size());
                 } else if (subarg == "--skip-boot-baseline-check") {
                     skip_boot_check = true;
+                } else if (subarg == "--lock-path") {
+                    if (j + 1 >= argc) {
+                        fprintf(stderr, "Error: missing value for --lock-path\n");
+                        return 1;
+                    }
+                    monitor_lock_path = argv[++j];
+                } else if (subarg.rfind("--lock-path=", 0) == 0) {
+                    monitor_lock_path = subarg.substr(std::string("--lock-path=").size());
                 } else if (subarg == "-h" || subarg == "--help") {
                     printf("Usage: diting monitor [options]\n");
                     printf("Options:\n");
                     printf("  --db PATH    SQLite baseline DB path (enables baseline comparison)\n");
                     printf("  --skip-boot-baseline-check   skip full baseline check at startup\n");
+                    printf("  --lock-path PATH   single-instance lock file (default: /var/run/diting-monitor.lock)\n");
                     printf("  -c PATH      YAML config file (optional when --db is used)\n");
                     printf("  -h, --help   display this message\n");
                     return 0;
@@ -615,7 +625,8 @@ int main(int argc, char *argv[]) {
                 signal(SIGHUP, sighup_handler);
                 int ret = 0;
                 while (true) {
-                    ret = do_monitor(config, alert_mgr, config_path, monitor_db_path, skip_boot_check);
+                    ret = do_monitor(config, alert_mgr, config_path, monitor_db_path, skip_boot_check,
+                                     monitor_lock_path);
                     if (!g_reload) {
                         break;
                     }

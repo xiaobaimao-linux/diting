@@ -170,3 +170,5 @@
   再 exec 后的新映像，属已知残留边界。
 - v2 方向：BPF 侧在 LSM bprm_check / tracepoint 上下文用 bpf_d_path 取 exec 时刻的
   解析后路径随事件携带，用户态不再事后读 /proc。
+- 进展（W9 S1）：同族的 case-06 容器归属竞态已按此思路根治（exec/fork 事件携带
+  cgroup 叶子名，proc_event.cgroup_name[64]），本条 exe 残余边界仍 open（未携带 exe）。

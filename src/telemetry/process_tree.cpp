@@ -11,7 +11,7 @@
 
 #include <spdlog/spdlog.h>
 
-#include "container.hpp"   // exe_path_of
+#include "container.hpp"   // exe_path_of / parse_container_id_from_cgroup_name / container_id_of
 
 namespace {
 
@@ -115,6 +115,16 @@ bool read_proc_status_ids(int pid, unsigned int* uid, unsigned int* gid) {
     return got_uid || got_gid;
 }
 
+// 容器归属解析主路径：事件自带 cgroup_name（内核在事件时刻捕获，规避短寿
+// 进程 /proc/<pid>/cgroup 读取竞态）；解析为空回落 /proc 读取（尽力）。
+std::string container_id_for_event(const proc_event& pe) {
+    std::string cid = parse_container_id_from_cgroup_name(
+        std::string(pe.cgroup_name, strnlen(pe.cgroup_name, sizeof(pe.cgroup_name))));
+    if (!cid.empty())
+        return cid;
+    return container_id_of(static_cast<int>(pe.pid));
+}
+
 } // namespace
 
 void ProcessTree::bootstrap() {
@@ -176,7 +186,11 @@ void ProcessTree::apply(const proc_event& pe) {
         node.uid = pe.uid;
         node.gid = pe.gid;
         record_set_str(node.comm, sizeof(node.comm), pe.comm, strnlen(pe.comm, sizeof(pe.comm)));
-        // fork 不填 container_id：子进程尚未 exec，等 exec 事件统一填
+        // 子进程 cgroup 继承自父进程，fork 事件已携带；优先事件解析，回落 /proc
+        const std::string cid = container_id_for_event(pe);
+        if (!cid.empty())
+            record_set_str(node.container_id, sizeof(node.container_id),
+                           cid.c_str(), cid.size());
 
         unsigned long long start_ns = 0;
         if (read_proc_stat(static_cast<int>(pe.pid), nullptr, nullptr, &start_ns))
@@ -206,7 +220,7 @@ void ProcessTree::apply(const proc_event& pe) {
                 record_set_str(node.exe, sizeof(node.exe), exe.c_str(), exe.size());
             else
                 record_set_str(node.exe, sizeof(node.exe), pe.exe, strnlen(pe.exe, sizeof(pe.exe)));
-            const std::string cid = container_id_of(static_cast<int>(pe.pid));
+            const std::string cid = container_id_for_event(pe);
             if (!cid.empty())
                 record_set_str(node.container_id, sizeof(node.container_id),
                                cid.c_str(), cid.size());
@@ -229,7 +243,7 @@ void ProcessTree::apply(const proc_event& pe) {
         else if (strnlen(pe.exe, sizeof(pe.exe)) > 0)
             record_set_str(node.exe, sizeof(node.exe), pe.exe, strnlen(pe.exe, sizeof(pe.exe)));
         // exec 统一刷新容器归属：有容器填短 ID，回到宿主机则清空
-        const std::string cid = container_id_of(static_cast<int>(pe.pid));
+        const std::string cid = container_id_for_event(pe);
         if (!cid.empty())
             record_set_str(node.container_id, sizeof(node.container_id),
                            cid.c_str(), cid.size());

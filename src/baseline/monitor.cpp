@@ -2380,22 +2380,25 @@ static int do_monitor_kprobe(const Config& config, AlertManager &alert_mgr,
 // ── 入口函数：根据内核版本分派到不同路径 ────────────────────────
 int do_monitor(const Config& config, AlertManager &alert_mgr,
                const std::string& config_path,
-               const std::string& baseline_db_path, bool skip_boot_check) {
+               const std::string& baseline_db_path, bool skip_boot_check,
+               const std::string& lock_path) {
 
     // ── 单实例锁（W7 D1 / G16）：探针加载、ring buffer 创建之前获取 ──
     // flock 方案：锁由进程级 fd 持有，正常退出与 kill -9 均由内核自动释放，
     // 无 stale pidfile 问题。双开会同时消费 ring buffer 并写同一告警库（G16 串扰）。
+    // lock_path 非空时覆盖默认锁路径（云上双实例并存，各持独立锁文件）。
     static const char* kMonitorLockPath = "/var/run/diting-monitor.lock";
+    const std::string lock_path_eff = lock_path.empty() ? kMonitorLockPath : lock_path;
     {
         int holder_pid = -1;
         std::string lock_err;
-        if (!common::AcquireInstanceLock(kMonitorLockPath, holder_pid, lock_err)) {
+        if (!common::AcquireInstanceLock(lock_path_eff, holder_pid, lock_err)) {
             if (holder_pid > 0) {
                 spdlog::error("[instance_lock] 已有 monitor 实例运行（pid {}），拒绝启动；锁文件 {}",
-                              holder_pid, kMonitorLockPath);
+                              holder_pid, lock_path_eff);
             } else {
                 spdlog::error("[instance_lock] 获取单实例锁失败: {}（锁文件 {}）",
-                              lock_err.empty() ? "锁已被持有" : lock_err, kMonitorLockPath);
+                              lock_err.empty() ? "锁已被持有" : lock_err, lock_path_eff);
             }
             return 1;
         }
