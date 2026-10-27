@@ -76,7 +76,7 @@ test_syslog_severity: unit/test_syslog_severity.cpp $(SRC_DIR)/alerts/syslog_not
 test_cis_judge: unit/test_cis_judge.cpp $(SRC_DIR)/cis/cis_judge.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $< $(SRC_DIR)/cis/cis_judge.cpp
 
-test_ai_boost: unit/test_ai_boost.cpp $(SRC_DIR)/alerts/ai_boost.cpp $(SRC_DIR)/storage/baseline_db.cpp $(SRC_DIR)/common/commonfun.cpp
+test_ai_boost: unit/test_ai_boost.cpp $(SRC_DIR)/alerts/ai_boost.cpp $(SRC_DIR)/storage/baseline_db.cpp $(SRC_DIR)/storage/baseline_db_assets.cpp $(SRC_DIR)/common/commonfun.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS_COMMON)
 
 test_instance_lock: unit/test_instance_lock.cpp $(SRC_DIR)/common/instance_lock.cpp

@@ -97,6 +97,11 @@ MAIN_SRCS = src/main.cpp \
             src/detect/rule_engine.cpp \
             src/ops/stats.cpp \
             src/storage/baseline_db.cpp \
+            src/storage/baseline_db_alerts.cpp \
+            src/storage/baseline_db_assets.cpp \
+            src/storage/baseline_db_baseline.cpp \
+            src/storage/baseline_db_entries.cpp \
+            src/storage/baseline_db_snapshot.cpp \
             src/storage/event_store.cpp
 MONITOR_SRC = src/baseline/monitor.cpp \
               src/baseline/monitor_rules.cpp \
