@@ -25,6 +25,9 @@
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
+#if __has_include(<bpf/libbpf_version.h>)
+#include <bpf/libbpf_version.h>
+#endif
 #include <cerrno>
 #include <csignal>
 #include <malloc.h>
@@ -682,6 +685,22 @@ static void perf_event_cb(void *ctx, int cpu, void *data, __u32 size) {
     } else {
         mctx->dropped_count++;
     }
+}
+
+// perf_buffer__new 兼容封装：libbpf 0.6 起为回调直传六参形式，0.5
+// （Ubuntu 22.04 自带）只有 opts 三参形式；libbpf_version.h 自 0.6 引入。
+static struct perf_buffer* new_perf_buffer_compat(int map_fd, size_t page_cnt,
+                                                  perf_buffer_sample_fn sample_cb,
+                                                  void* ctx) {
+#if defined(LIBBPF_MAJOR_VERSION) && \
+    (LIBBPF_MAJOR_VERSION > 0 || LIBBPF_MINOR_VERSION >= 6)
+    return perf_buffer__new(map_fd, page_cnt, sample_cb, nullptr, ctx, nullptr);
+#else
+    struct perf_buffer_opts opts = {};
+    opts.sample_cb = sample_cb;
+    opts.ctx = ctx;
+    return perf_buffer__new(map_fd, page_cnt, &opts);
+#endif
 }
 
 // ── 核心事件处理逻辑 ────────────────────────────────────────────────
@@ -1905,9 +1924,28 @@ static int do_monitor_ringbuf(const Config& config, AlertManager &alert_mgr,
 
     err = lsm_file_bpf__load(skel);
     if (err) {
-        spdlog::error("[bpf_program_error] Failed to load BPF skeleton: {}", err);
+        // 旧内核（实测 5.15）verifier 不支持 LSM hook 原型中的按值 STRUCT 参数
+        // （path_chown 的 kuid_t/kgid_t），load 直接 -EINVAL。降级：禁载
+        // file_chown_hook（丢失 CHOWN 检测，其余探针不受影响）后重试。
+        auto kv = get_kernel_version();
+        spdlog::warn("[bpf_compat] skeleton load failed ({}), kernel {}.{}: "
+                     "retry without path_chown hook (CHOWN detection degraded)",
+                     err, kv.major, kv.minor);
         lsm_file_bpf__destroy(skel);
-        return 1;
+        skel = lsm_file_bpf__open();
+        if (!skel) {
+            spdlog::error("[bpf_program_error] Failed to reopen BPF skeleton");
+            return 1;
+        }
+        if (skel->progs.file_mmap_hook && !kernel_at_least(5, 9))
+            bpf_program__set_autoload(skel->progs.file_mmap_hook, false);
+        bpf_program__set_autoload(skel->progs.file_chown_hook, false);
+        err = lsm_file_bpf__load(skel);
+        if (err) {
+            spdlog::error("[bpf_program_error] Failed to load BPF skeleton: {}", err);
+            lsm_file_bpf__destroy(skel);
+            return 1;
+        }
     }
 
     err = lsm_file_bpf__attach(skel);
@@ -2166,9 +2204,25 @@ static int do_monitor_perf(const Config& config, AlertManager &alert_mgr,
 
     err = lsm_file_perf_bpf__load(skel);
     if (err) {
-        spdlog::error("[bpf_program_error] Failed to load perf BPF skeleton: {}", err);
+        // 同 ring buffer 路径：旧内核 verifier 不支持按值 STRUCT 参数
+        // （path_chown 的 kuid_t/kgid_t），降级禁载 chown 钩子重试
+        spdlog::warn("[bpf_compat] perf skeleton load failed ({}): "
+                     "retry without path_chown hook (CHOWN detection degraded)", err);
         lsm_file_perf_bpf__destroy(skel);
-        return 1;
+        skel = lsm_file_perf_bpf__open();
+        if (!skel) {
+            spdlog::error("[bpf_program_error] Failed to reopen perf BPF skeleton");
+            return 1;
+        }
+        if (skel->progs.file_mmap_hook && !kernel_at_least(5, 9))
+            bpf_program__set_autoload(skel->progs.file_mmap_hook, false);
+        bpf_program__set_autoload(skel->progs.file_chown_hook, false);
+        err = lsm_file_perf_bpf__load(skel);
+        if (err) {
+            spdlog::error("[bpf_program_error] Failed to load perf BPF skeleton: {}", err);
+            lsm_file_perf_bpf__destroy(skel);
+            return 1;
+        }
     }
 
     err = lsm_file_perf_bpf__attach(skel);
@@ -2198,8 +2252,8 @@ static int do_monitor_perf(const Config& config, AlertManager &alert_mgr,
     spdlog::info("Monitoring started (perf buffer mode). Press Ctrl+C to stop.");
 
     struct perf_buffer *pb =
-        perf_buffer__new(bpf_map__fd(skel->maps.events), 64,
-                         perf_event_cb, nullptr, &mctx, nullptr);
+        new_perf_buffer_compat(bpf_map__fd(skel->maps.events), 64,
+                               perf_event_cb, &mctx);
     if (!pb) {
         spdlog::error("[bpf_program_error] Failed to create perf buffer");
         if (baseline_db) delete baseline_db;
@@ -2287,8 +2341,8 @@ static int do_monitor_kprobe(const Config& config, AlertManager &alert_mgr,
     spdlog::info("Monitoring started (kprobe mode, alert-only). Press Ctrl+C to stop.");
 
     struct perf_buffer *pb =
-        perf_buffer__new(bpf_map__fd(skel->maps.events), 64,
-                         perf_event_cb, nullptr, &mctx, nullptr);
+        new_perf_buffer_compat(bpf_map__fd(skel->maps.events), 64,
+                               perf_event_cb, &mctx);
     if (!pb) {
         spdlog::error("[bpf_program_error] Failed to create perf buffer for kprobe");
         if (baseline_db) delete baseline_db;
