@@ -11,9 +11,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <set>
 #include <sstream>
 #include <string>
@@ -66,6 +68,10 @@ void PrintCisUsage() {
               << "  --format F     output format: text|json|html (default: text;\n"
               << "                 takes precedence over --json; html/json schema\n"
               << "                 see docs/cis-report-format-v1.md)\n"
+              << "  --group-by-clause\n"
+              << "                 group results by 等保 2.0 clause number, one section\n"
+              << "                 per clause with per-clause pass rate and an overall\n"
+              << "                 pass rate at the end (text format only)\n"
               << "  --out PATH     write report to file (default: stdout)\n"
               << "  -h, --help   display this message\n";
 }
@@ -321,6 +327,7 @@ int RunReport(int argc, char* argv[]) {
     std::string result_filter;
     std::string format;
     std::string out_path;
+    bool group_by_clause = false;
     for (int i = 0; i < argc; ++i) {
         if (consumed[i]) continue;
         const std::string arg = argv[i];
@@ -356,6 +363,8 @@ int RunReport(int argc, char* argv[]) {
             }
         } else if (arg.rfind("--out=", 0) == 0) {
             out_path = arg.substr(6);
+        } else if (arg == "--group-by-clause") {
+            group_by_clause = true;
         } else {
             std::cerr << "Error: unknown report option: " << arg << "\n";
             PrintCisUsage();
@@ -377,6 +386,10 @@ int RunReport(int argc, char* argv[]) {
     }
     if (!format.empty() && format != "text" && format != "json" && format != "html") {
         std::cerr << "Error: invalid format: " << format << " (text|json|html)\n";
+        return 2;
+    }
+    if (group_by_clause && (format == "json" || format == "html")) {
+        std::cerr << "Error: --group-by-clause is only supported with text format\n";
         return 2;
     }
 
@@ -406,6 +419,53 @@ int RunReport(int argc, char* argv[]) {
 
     if (rows.empty()) {
         os << "No cis results found." << std::endl;
+        if (!out_path.empty()) {
+            return WriteReportOutput(text_buf.str(), out_path) ? 0 : 1;
+        }
+        return 0;
+    }
+
+    // --group-by-clause：按等保 2.0 条款号分组渲染，组末小组通过率，末尾总通过率
+    if (group_by_clause) {
+        std::map<std::string, std::vector<const CisResultRow*>> by_clause;
+        for (const auto& row : rows) {
+            by_clause[row.compliance].push_back(&row);
+        }
+        int total_pass = 0;
+        int total_fail = 0;
+        int total_warn = 0;
+        for (const auto& [clause, group] : by_clause) {
+            os << "== 等保条款 " << clause << " ==" << std::endl;
+            os << std::left << std::setw(10) << "CHECK_ID" << std::setw(8) << "RESULT"
+               << "DESCRIPTION" << std::endl;
+            os << std::string(60, '-') << std::endl;
+            int pass_count = 0;
+            int fail_count = 0;
+            int warn_count = 0;
+            for (const auto* row : group) {
+                os << std::left << std::setw(10) << row->check_id << std::setw(8)
+                   << row->result << row->description << std::endl;
+                if (row->result == "pass") ++pass_count;
+                if (row->result == "fail") ++fail_count;
+                if (row->result == "warn") ++warn_count;
+            }
+            char rate_buf[32];
+            std::snprintf(rate_buf, sizeof(rate_buf), "%.2f%%",
+                          group.empty() ? 0.0 : 100.0 * pass_count / group.size());
+            os << "小组通过率: " << pass_count << "/" << group.size() << " (" << rate_buf
+               << ") (pass " << pass_count << " / fail " << fail_count << " / warn "
+               << warn_count << ")" << std::endl;
+            os << std::endl;
+            total_pass += pass_count;
+            total_fail += fail_count;
+            total_warn += warn_count;
+        }
+        char rate_buf[32];
+        std::snprintf(rate_buf, sizeof(rate_buf), "%.2f%%",
+                      rows.empty() ? 0.0 : 100.0 * total_pass / rows.size());
+        os << "总通过率: " << total_pass << "/" << rows.size() << " (" << rate_buf
+           << ") (pass " << total_pass << " / fail " << total_fail << " / warn "
+           << total_warn << ")" << std::endl;
         if (!out_path.empty()) {
             return WriteReportOutput(text_buf.str(), out_path) ? 0 : 1;
         }
