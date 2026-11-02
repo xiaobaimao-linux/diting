@@ -4,9 +4,10 @@
 # 退出码: 0 = 全部用例 × 2 轮 PASS；1 = 有失败项。
 set -u
 
-# 以 root 跑 monitor 会在 /var/log/diting、/var/lib/diting 留下 root 属主文件，
-# 退出时统一回收属权，裸跑本脚本无需前置/事后手工 chown
-trap 'chown -R "${SUDO_USER:-sf}":"${SUDO_USER:-sf}" /var/log/diting /var/lib/diting 2>/dev/null || true' EXIT
+# 以 root 跑 monitor 会在 /var/log/diting、/var/lib/diting、/tmp/bg-attack-cases 留下 root
+# 属主文件，/var/run/diting-monitor.lock 也会以 root 属主残留（flock 已释放但文件在，
+# 非 root 后续冒烟开不了锁），退出时统一回收属权 + 删锁，裸跑本脚本无需前置/事后手工清理
+trap 'chown -R "${SUDO_USER:-sf}":"${SUDO_USER:-sf}" /var/log/diting /var/lib/diting /tmp/bg-attack-cases 2>/dev/null || true; rm -f /var/run/diting-monitor.lock 2>/dev/null || true' EXIT
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK_DIR="/tmp/bg-attack-cases"
@@ -168,9 +169,10 @@ kill -0 "$(cat "$PIDFILE")" 2>/dev/null && { kill -KILL "$(cat "$PIDFILE")"; ech
 rm -f "$PIDFILE"
 
 echo ""
-echo "=== 回收 root 属主文件属权 ==="
-chown -R "${SUDO_USER:-sf}":"${SUDO_USER:-sf}" /var/log/diting /var/lib/diting 2>/dev/null || true
-ls -ld /var/log/diting /var/lib/diting | awk '{print $3":"$4, $NF}'
+echo "=== 回收 root 属主文件属权 + 清理 /var/run 锁 ==="
+chown -R "${SUDO_USER:-sf}":"${SUDO_USER:-sf}" /var/log/diting /var/lib/diting /tmp/bg-attack-cases 2>/dev/null || true
+rm -f /var/run/diting-monitor.lock 2>/dev/null || true
+ls -ld /var/log/diting /var/lib/diting /tmp/bg-attack-cases | awk '{print $3":"$4, $NF}'
 
 echo ""
 echo "=== 清理临时假密钥 ==="
