@@ -150,11 +150,12 @@ static __always_inline int parse_dns_query(struct net_event *e, const void *buff
     }
 
     /* QNAME 线格式一次性拷入 domain。walk 已拒绝超长 QNAME（防御性收敛不会
-     * 截断正常事件）；赋值式 clamp 让 verifier 可证明 probe 长度 <= domain
-     * 缓冲（u32 比较+返回的写法经 clang 移位变换后无法回代范围，实测被拒） */
+     * 截断正常事件）。用位掩码收敛（而非比较+赋值 clamp）：掩码直接作用于
+     * 取值寄存器，任何 clang 版本都无法把上界证明搬到别的寄存器上——比较+
+     * 赋值写法经 clang-14（22.04 容器工具链）移位变换后 clamp 落在副本寄存器，
+     * 拷贝仍用原值，5.15 verifier 无法回代范围判 EPERM（G25），6.8 才放行。 */
     qname_len = pos - DNS_HDR_LEN;
-    if (qname_len > sizeof(e->domain) - 1)
-        qname_len = sizeof(e->domain) - 1;
+    qname_len &= sizeof(e->domain) - 1;   /* domain 256 字节，掩码 255 */
     if (bpf_probe_read_user(e->domain, qname_len, buff + DNS_HDR_LEN) != 0)
         return -1;
     return 0;

@@ -193,3 +193,16 @@
   chown 降级（已知边界）与本问题相互独立。
 - 排期：由人裁决（S1 返工或 W11）；临时规避——若 5.15 必须网络遥测，可回退系统
   libbpf 构建或单独修 tp_sys_enter_sendto 的 5.15 兼容。
+- **已修复（2026-11-02，W10 S2.5，见提交记录）**：根因非 libbpf（变量隔离：同一 .o 在 5.15 上
+  libbpf 1.4.5 与 1.8.0 行为一致，均载/均拒），而是 22.04 容器 tarball 工具链
+  clang-14 的 codegen——`parse_dns_query()` 的赋值式 clamp
+  （`if (qname_len > 255) qname_len = 255;`）被编译成"clamp 落在副本寄存器 r1、
+  拷贝长度仍用原值 r9（umax=513）"，5.15 verifier 无法跨寄存器回代上界，在
+  `bpf_probe_read_user(e->domain, qname_len, ...)` 处判
+  `invalid access to memory, mem_size=352 off=90 size=513`（EPERM）；6.8 verifier
+  寄存器关系追踪更强故 A 机放行。修法：`bpf/net_watch.bpf.c` 改为位掩码收敛
+  `qname_len &= sizeof(e->domain) - 1`（掩码直接作用于取值寄存器，任意 clang
+  版本均无法搬走上界证明；语义不变，walk 已保证 ≤255）。验证：clang-14 与
+  clang-18 产物 × libbpf 1.4.5/1.8.0 在 B 机 5.15 实测全载；失败 prog 实为
+  sendto/sendmsg/sendmmsg 三个（共用 parse_dns_query），kprobe/bind 无辜。
+  证据落盘：B 机 /root/g25/（diting_repro.log、iso_*.log、e3_*.log、fix_*.log）。
