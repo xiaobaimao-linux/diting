@@ -172,3 +172,24 @@
   解析后路径随事件携带，用户态不再事后读 /proc。
 - 进展（W9 S1）：同族的 case-06 容器归属竞态已按此思路根治（exec/fork 事件携带
   cgroup 叶子名，proc_event.cgroup_name[64]），本条 exe 残余边界仍 open（未携带 exe）。
+
+## G25 libbpf 1.4.5 vendored 后 net_watch 在 5.15 加载失败（tp_sys_enter_sendto EPERM，网络/DNS 遥测整体缺失）
+
+- 现象（W10 S2 矩阵暴露）：B 机（Ubuntu 22.04 / kernel 5.15.0-198）S1 修复版二进制
+  （libbpf 1.4.5 vendored 静态链接）加载 net_watch_bpf 失败：
+  `tp_sys_enter_sendto: BPF program load failed: Permission denied (-13)`，
+  verifier 日志首行 `R1 type=ctx expected=fp`；monitor 降级"仅文件监控"继续运行。
+  后果：network/dns 两类遥测事件为零（events 表无 network/dns 类目），
+  36 用例中 4 个网络依赖用例（case-01/23/24/34）两轮全挂（8 条 FAIL，非 flake，
+  探针加载期即失败，与用户态无关）。同二进制在 A 机（24.04 / 6.8）全部通过。
+- 对比锚点：W9 云上基线（S1 前、libbpf 系统库构建）B 机这四类用例是通过的
+  （B 基线 RSS 133.7 的矩阵口径含 network 事件），故高度疑似 S1 libbpf 0.5→1.4.5
+  切换引入的加载行为差异（1.4.5 对 tracepoint prog 的 attach/expected_attach_type
+  或 func proto 判定与 5.15 verifier 的组合问题），未现场定性，需开发机复现定位。
+- 复现路径：22.04/5.15 机器 → 安装 diting-v1.0.0-ubuntu-22.04 tarball →
+  `diting monitor -c <含 telemetry.network/dns: true 的配置>` → 日志见
+  `[bpf_program_error] Failed to load net_watch skeleton: -13`。
+- 影响面：仅 5.15（及更老）内核的网络/DNS 遥测；文件/priv/ns/process 遥测不受影响；
+  chown 降级（已知边界）与本问题相互独立。
+- 排期：由人裁决（S1 返工或 W11）；临时规避——若 5.15 必须网络遥测，可回退系统
+  libbpf 构建或单独修 tp_sys_enter_sendto 的 5.15 兼容。
