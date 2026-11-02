@@ -106,7 +106,7 @@ if [ -n "$PREBUILT" ]; then
 else
     echo "[1/4] Compiling eBPF program..."
     make clean >/dev/null 2>&1 || true
-    make
+    make -j"$(nproc)"
     PREBUILT="$SCRIPT_DIR/diting"
 fi
 $SUDO install -m 755 "$PREBUILT" /usr/local/bin/diting
