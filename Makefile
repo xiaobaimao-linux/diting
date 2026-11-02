@@ -2,6 +2,11 @@ CXX = g++
 CC = gcc
 BPF_CC = clang
 
+# vendored libbpf（静态链接）：版本与来源见 third_party/README.md
+LIBBPF_DIR = third_party/libbpf
+LIBBPF_A = $(LIBBPF_DIR)/src/libbpf.a
+LIBBPF_HDRS = $(LIBBPF_DIR)/dest/usr/include
+
 # src 子目录按 PRD 第 5 章九子系统划分：
 #   asset=M1(预留) baseline=M2 detect=M3(预留) ai=M4(预留)
 #   alerts=M5 storage=M6 cli=M7 ops=M8 ebpf=遥测层(预留)
@@ -22,14 +27,16 @@ INCLUDE_DIRS = -I. \
                -I./src/telemetry \
                -I./bpf
 
-CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -g -MMD -MP $(INCLUDE_DIRS)
+CXXFLAGS = -std=c++17 -Wall -Wextra -O2 -g -MMD -MP $(INCLUDE_DIRS) -I$(LIBBPF_HDRS)
 # -Wno-missing-declarations：完整版 vmlinux.h 含未实例化的前向声明成员，
 # 会触发 -Wmissing-declarations（旧精简版 vmlinux.h 无此问题），非代码缺陷
 BPF_CFLAGS = -target bpf -D__TARGET_ARCH_x86 \
              -I/usr/include/x86_64-linux-gnu \
-             -I/usr/include/bpf -g -O2 -Wno-missing-declarations
+             -I$(LIBBPF_HDRS) -g -O2 -Wno-missing-declarations
 
-LDFLAGS = -lbpf -lssl -lcrypto -lfmt -lyaml-cpp -lsqlite3 -lcurl
+# libbpf 静态链接 vendored 1.4.5（third_party/，来源见 third_party/README.md），
+# 运行时零外部 libbpf 依赖；libelf/zlib 是其唯一系统依赖
+LDFLAGS = $(LIBBPF_A) -lelf -lz -lssl -lcrypto -lfmt -lyaml-cpp -lsqlite3 -lcurl
 
 TARGET = diting
 
@@ -127,6 +134,15 @@ all: $(TARGET)
 
 BPF_COMMON_H = bpf/bpf_common.h bpf/vmlinux.h bpf/event.h bpf/stats_slots.h
 
+# vendored libbpf：静态库 + install_headers 头文件布局（dest/usr/include/bpf）
+$(LIBBPF_A):
+	$(MAKE) -C $(LIBBPF_DIR)/src BUILD_STATIC_ONLY=1
+	$(MAKE) -C $(LIBBPF_DIR)/src install_headers DESTDIR=$(abspath $(LIBBPF_DIR))/dest
+
+# 用户态与 BPF 对象都经 -I$(LIBBPF_HDRS) 引用 <bpf/...>，依赖 vendored 头文件就绪
+$(OBJS): | $(LIBBPF_A)
+$(BPF_OBJ) $(BPF_OBJ_PERF) $(BPF_KPROBE_OBJ) $(BPF_NET_OBJ) $(BPF_PRIV_OBJ) $(BPF_PROC_OBJ): | $(LIBBPF_A)
+
 # BPF 编译
 $(BPF_OBJ): $(BPF_SRC) $(BPF_COMMON_H)
 	$(BPF_CC) $(BPF_CFLAGS) -c -o $@ $<
@@ -196,8 +212,8 @@ src/baseline/monitor_process.o: src/baseline/monitor_process.cpp $(BPF_PROC_SKEL
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # 链接
-$(TARGET): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+$(TARGET): $(OBJS) $(LIBBPF_A)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJS) $(LDFLAGS)
 
 test: $(TARGET)
 	./$(TARGET) check -c tests/fixtures/default.yaml
@@ -237,5 +253,7 @@ tests/integration/helpers/wl_parent: tests/integration/helpers/wl_parent.c
 clean:
 	find src -type f \( -name '*.o' -o -name '*.d' \) -delete
 	rm -f $(TARGET) $(BPF_OBJ) $(BPF_SKEL) $(BPF_OBJ_PERF) $(BPF_SKEL_PERF) $(BPF_KPROBE_OBJ) $(BPF_KPROBE_SKEL) $(BPF_NET_OBJ) $(BPF_NET_SKEL) $(BPF_PRIV_OBJ) $(BPF_PRIV_SKEL) $(BPF_PROC_OBJ) $(BPF_PROC_SKEL)
+	-$(MAKE) -C $(LIBBPF_DIR)/src clean >/dev/null 2>&1
+	rm -rf $(LIBBPF_DIR)/dest
 
 -include $(DEPS)

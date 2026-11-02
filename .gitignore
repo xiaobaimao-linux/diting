@@ -53,3 +53,6 @@ tests/test_event_bus
 
 # 压测生成物（tests/perf/gen_rules_100.sh 按需生成）
 /rules/perf-100/
+
+# vendored libbpf 构建产物（src/ 内对象由 third_party/libbpf/src/.gitignore 覆盖）
+third_party/libbpf/dest/
