@@ -45,17 +45,40 @@ fi
 AVAIL_MB=$(df -m / | awk 'NR==2{print $4}')
 [ "$AVAIL_MB" -ge 500 ] || err "磁盘不足：/ 可用 ${AVAIL_MB}MB，需 >= 500MB"
 
-# 5) 预编译包判定：有匹配二进制则免工具链；否则进入源码编译路径并检测工具链
+# 5) 预编译包判定：有匹配二进制则免工具链，改查运行库（ldd 缺项即报）；
+#    否则进入源码编译路径并检测工具链
 PREBUILT=""
 [ -f "$SCRIPT_DIR/bin/diting" ] && PREBUILT="$SCRIPT_DIR/bin/diting"
 if [ -z "$PREBUILT" ] && [ ! -f "$SCRIPT_DIR/Makefile" ]; then
     err "既无预编译二进制 bin/diting，也无源码树 Makefile，安装包不完整"
 fi
 
+if [ -n "$PREBUILT" ]; then
+    MISSING_LIBS=$(ldd "$PREBUILT" 2>/dev/null | awk '/not found/{print $1}' | sort -u)
+    if [ -n "$MISSING_LIBS" ]; then
+        err "预编译二进制缺运行库: $(echo $MISSING_LIBS | tr '\n' ' ')
+      Ubuntu 一键补齐: apt install libfmt9 libyaml-cpp0.8 libsqlite3-0 libcurl4 libssl3 libelf1 zlib1g
+      （22.04 对应 libfmt8 / libyaml-cpp0.7）"
+    fi
+fi
+
 if [ -z "$PREBUILT" ]; then
     for tool in g++ clang bpftool make; do
-        command -v "$tool" >/dev/null 2>&1 || err "缺编译工具: $tool（apt install $tool）"
+        pkg="$tool"
+        [ "$tool" = bpftool ] && pkg="linux-tools-generic"   # Ubuntu 无独立 bpftool 包
+        command -v "$tool" >/dev/null 2>&1 || err "缺编译工具: $tool（apt install $pkg）"
     done
+    # 容器/LXC 内 linux-tools 的 /usr/sbin/bpftool 是按 uname -r 分发的 shim，宿主内核
+    # 无匹配 linux-tools-<ver> 包时 shim 失效；直接链接已安装的真实二进制兜底
+    if command -v bpftool >/dev/null 2>&1 && ! bpftool version >/dev/null 2>&1; then
+        REAL_BPFTOOL=$(ls /usr/lib/linux-tools-*/bpftool 2>/dev/null | head -1)
+        if [ -n "$REAL_BPFTOOL" ]; then
+            $SUDO ln -sf "$REAL_BPFTOOL" /usr/local/bin/bpftool
+            echo "NOTE: bpftool shim 失效（容器环境），已链接真实二进制 $REAL_BPFTOOL → /usr/local/bin/bpftool"
+        else
+            err "bpftool shim 失效且未找到真实二进制（apt install linux-tools-generic）"
+        fi
+    fi
     # 头文件依赖 → apt 包名
     [ -f /usr/include/libelf.h ] || err "缺开发包: libelf-dev"
     [ -f /usr/include/zlib.h ] || err "缺开发包: zlib1g-dev"
@@ -111,10 +134,15 @@ $SUDO cp -r rules/core rules/examples /etc/diting/rules/
 RULES_INSTALLED=$(grep -rc '^- rule' /etc/diting/rules/core/*.yaml | awk -F: '{s+=$2} END {print s}')
 echo "  核心规则 $RULES_INSTALLED 条 → /etc/diting/rules/core（示例规则 → rules/examples）"
 
-# 5) systemd 服务
+# 5) systemd 服务（unit 文件照常落盘；无 systemd 的容器环境只跳过 daemon-reload）
 echo "[4/4] Creating systemd service..."
+$SUDO install -d -m 755 /etc/systemd/system
 $SUDO install -m 644 deploy/diting.service /etc/systemd/system/diting.service
-$SUDO systemctl daemon-reload
+if command -v systemctl >/dev/null 2>&1; then
+    $SUDO systemctl daemon-reload
+else
+    echo "NOTE: 无 systemctl（容器环境），unit 已落盘但未 reload；手动起: diting monitor -c /etc/diting/monitor.yaml"
+fi
 
 echo ""
 echo "=== Installation Complete ==="

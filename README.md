@@ -20,14 +20,50 @@
 - **合规交付**：HTML 审计报表、告警历史查询、事件汇总导出
 - **低资源开销**：事件驱动无轮询，遥测开关默认关闭、对既有功能零影响；10k/s 事件零丢失，常态 CPU 均值 0.57%、RSS 峰值 139MB（全功能口径）
 
-## 快速上手
+## 安装与快速上手
+
+### 方式一：预编译包安装（推荐，<2 分钟）
+
+按目标系统选择对应 tarball（ubuntu-22.04 / ubuntu-24.04，各自由对应系统容器构建保证 ABI 对口）：
 
 ```bash
-make                                                # 编译
+tar xzf diting-v1.0.0-ubuntu-24.04-x86_64.tar.gz
+cd diting-v1.0.0-ubuntu-24.04-x86_64
+sudo bash install.sh          # 前置检测（内核/sudo/磁盘）→ 装二进制+配置+规则+systemd
+sudo systemctl start diting   # 装完即起
+```
+
+安装产物布局：
+
+| 路径 | 内容 |
+|------|------|
+| `/usr/local/bin/diting` | 主二进制（libbpf 静态链接，运行时零外部 libbpf 依赖） |
+| `/etc/diting/monitor.yaml` | monitor 运行配置（rules_dir 指向下方规则目录） |
+| `/etc/diting/check.yaml` | check 工具配置（`diting check -c` 用，与 monitor 配置口径分离） |
+| `/etc/diting/rules/core/` | DSL 核心规则包（30 条）；`rules/examples/` 为示例 |
+| `/var/lib/diting/` | baseline.db / events.db（systemd WorkingDirectory） |
+| `/var/log/diting/` | 运行日志与审计报表 |
+
+### 方式二：源码编译安装（兜底路径）
+
+无匹配预编译包时 install.sh 自动走源码全量编译（前置检测会校验工具链：
+g++/clang/bpftool/make + libelf-dev zlib1g-dev libssl-dev libfmt-dev
+libyaml-cpp-dev libsqlite3-dev libcurl4-openssl-dev）：
+
+```bash
+sudo bash install.sh          # 在仓库根目录执行，自动检测并编译
+```
+
+开发态手动流程：
+
+```bash
+make                                                # 编译（libbpf 静态链接 third_party/ 内 vendored 1.4.5）
 sudo ./diting baseline snapshot /etc        # 采集基线
 sudo ./diting baseline check                # 离线核查
 sudo ./diting monitor --db baseline.db -c config.yaml   # 实时监控
 ```
+
+自行构建预编译包：`bash deploy/build_tarball.sh`（产物在 `dist/`，用法见脚本头注释）。
 
 开启遥测（`baselines/default.yaml` 中 `telemetry.network/dns/privilege` 置 true）后：
 

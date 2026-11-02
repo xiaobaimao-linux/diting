@@ -56,3 +56,6 @@ tests/test_event_bus
 
 # vendored libbpf 构建产物（src/ 内对象由 third_party/libbpf/src/.gitignore 覆盖）
 third_party/libbpf/dest/
+
+# 打包产物
+dist/
