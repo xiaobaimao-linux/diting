@@ -1,0 +1,114 @@
+# diting monitor 生产运行配置 —— 由 install.sh 安装到 /etc/diting/monitor.yaml
+# 注意口径分离：本文件仅供 `diting monitor` 使用；
+# check 工具配置是 /etc/diting/check.yaml（`diting check -c /etc/diting/check.yaml`），勿混用。
+
+# ── 遥测开关 ──
+telemetry:
+  network: true        # connect/accept/bind 网络连接遥测
+  dns: true            # DNS 查询遥测（随 net_watch 加载）
+  privilege: true      # setuid/capset/ptrace/module_load 权限遥测
+  store: true          # 事件落库 events 表（file/exec/network/dns/priv）
+  events_db: "/var/lib/diting/events.db"
+  batch_size: 500      # 一事务批量条数
+  batch_ms: 200        # 批量 flush 间隔（毫秒）
+
+# ── DSL 规则引擎（核心规则包 30 条，由 install.sh 安装到 /etc/diting/rules/core）──
+rule_engine:
+  enabled: true
+  rules_dir: "/etc/diting/rules/core"   # 加载器递归扫描子目录，语法见 docs/rule-dsl-v1.md
+
+# ── 纯 YAML 文件规则（read 事件走 file_open LSM 钩子）──
+# 除告警外还承担 inode 注册职责：DSL 规则里 contains 类路径（authorized_keys、
+# .bash_history 等）无法按字面量自动登记，只有在此注册的文件才产生 file 事件（G6）。
+# 按现场需要追加用户级路径（如 /home/*/.ssh/authorized_keys）。
+rules:
+  - id: "FILE-SHADOW-001"
+    name: "监控敏感文件 - /etc/shadow"
+    severity: "critical"
+    monitor:
+      path: "/etc/shadow"
+      events: ["read", "write", "delete", "chmod"]
+      action: "alert"
+
+  - id: "FILE-GSHADOW-001"
+    name: "监控敏感文件 - /etc/gshadow"
+    severity: "critical"
+    monitor:
+      path: "/etc/gshadow"
+      events: ["read", "write", "delete", "chmod"]
+      action: "alert"
+
+  - id: "FILE-PASSWD-001"
+    name: "监控账户文件写入 - /etc/passwd"
+    severity: "high"
+    monitor:
+      path: "/etc/passwd"
+      events: ["write", "delete", "chmod"]
+      action: "alert"
+
+  - id: "FILE-CRONTAB-001"
+    name: "监控定时任务篡改 - /etc/crontab"
+    severity: "high"
+    monitor:
+      path: "/etc/crontab"
+      events: ["write", "delete"]
+      action: "alert"
+
+  - id: "FILE-LDPRELOAD-001"
+    name: "监控动态链接预载劫持 - /etc/ld.so.preload"
+    severity: "critical"
+    monitor:
+      path: "/etc/ld.so.preload"
+      events: ["write", "delete"]
+      action: "alert"
+
+  - id: "FILE-ROOT-KEY-001"
+    name: "监控 root 私钥读取 - /root/.ssh/id_rsa"
+    severity: "critical"
+    monitor:
+      path: "/root/.ssh/id_rsa"
+      events: ["read", "write", "delete", "chmod"]
+      action: "alert"
+
+  - id: "FILE-ROOT-AUTHKEYS-001"
+    name: "监控 root authorized_keys 篡改"
+    severity: "high"
+    monitor:
+      path: "/root/.ssh/authorized_keys"
+      events: ["write", "delete", "chmod"]
+      action: "alert"
+
+  - id: "FILE-ROOT-HISTORY-001"
+    name: "监控 root shell 历史清空/删除"
+    severity: "medium"
+    monitor:
+      path: "/root/.bash_history"
+      events: ["write", "delete"]
+      action: "alert"
+
+# ── 告警（webhook 留空，仅本地落 alerts 表）──
+alert:
+  dingtalk:
+    webhook: ""
+    secret: ""
+  throttle: 300
+
+# ── 告警外发（webhook + syslog 双渠道，SIGHUP 热加载生效）──
+notify:
+  enabled: false             # 外发总开关
+  webhook_url: ""            # HTTP POST JSON 目标，如 http://127.0.0.1:9000/alert
+  min_level: "high"          # webhook 渠道外发最低级别：critical/high 外发，medium/low 仅落库
+  silence_minutes: 10        # 同 (rule_id, 对象) 静默窗口，窗口内重复仅落库；0=关闭
+  aggregation_window_minutes: 5  # 同 (rule_id, 对象) 聚合窗口：窗内重复合并，窗末补发
+                             # occurrences=N 摘要（仅外发侧，落库逐条不变）；0=关闭
+  # syslog 渠道（RFC 5424，与 webhook 并存、各收各的）：host 空 = 本地 /dev/log，
+  # host 非空 = UDP host:port；min_level 为本渠道独立最低级别
+  # syslog:
+  #   enabled: false
+  #   host: ""               # 如 "192.168.1.10"；留空写本地 /dev/log
+  #   port: 514
+  #   min_level: "high"
+
+db:
+  retention_days: 30
+  retention_max_records: 10000

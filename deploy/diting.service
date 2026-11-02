@@ -1,0 +1,13 @@
+[Unit]
+Description=diting eBPF Host Security Monitor
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/lib/diting
+ExecStart=/usr/local/bin/diting monitor -c /etc/diting/monitor.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

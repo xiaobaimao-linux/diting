@@ -1,74 +1,128 @@
 #!/bin/bash
-# install.sh
-
+# install.sh — diting 安装脚本
+# 路径：预编译包（bin/diting 在场）直接安装；否则源码全量编译兜底。
 set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 echo "=== diting installer ==="
 
-# 1. 检测内核版本
-KERNEL_MAJOR=$(uname -r | cut -d. -f1)
-KERNEL_MINOR=$(uname -r | cut -d. -f2)
+# ---------- 前置检测：缺什么报什么，报完统一退出非零 ----------
+fail=0
+err() { echo "ERROR: $1"; fail=1; }
 
-if [ "$KERNEL_MAJOR" -lt 5 ] || ([ "$KERNEL_MAJOR" -eq 5 ] && [ "$KERNEL_MINOR" -lt 7 ]); then
-    echo "ERROR: Linux kernel 5.7+ required, current: $(uname -r)"
-    echo "Your kernel does not support BPF_LSM. Exiting."
-    exit 1
-fi
-
-# 2. 检测 CONFIG_BPF_LSM
-if ! grep -q "CONFIG_BPF_LSM=y" /boot/config-$(uname -r) 2>/dev/null; then
-    echo "WARNING: CONFIG_BPF_LSM may not be enabled. Checking /sys/kernel/security/lsm..."
-    if ! cat /sys/kernel/security/lsm | grep -q bpf; then
-        echo "ERROR: BPF_LSM not enabled. Please enable it in kernel config."
-        exit 1
+# 1) root 或 sudo
+if [ "$(id -u)" -ne 0 ]; then
+    if command -v sudo >/dev/null 2>&1; then
+        SUDO="sudo"
+    else
+        err "需要 root 权限或 sudo，当前用户 $(id -un) 均无"
     fi
+else
+    SUDO=""
 fi
 
-# 3. 编译
-echo "[1/4] Compiling eBPF program..."
-make clean >/dev/null 2>&1 || true
-make
-
-# 4. 安装二进制
-echo "[2/4] Installing binary..."
-sudo cp diting /usr/local/bin/
-sudo chmod +x /usr/local/bin/diting
-
-# 5. 创建配置目录
-echo "[3/4] Setting up config..."
-sudo mkdir -p /etc/diting
-sudo mkdir -p /var/log/diting
-sudo mkdir -p /var/lib/diting
-
-# 6. 复制默认规则
-if [ ! -f /etc/diting/rules.yaml ]; then
-    sudo cp baselines/default.yaml /etc/diting/rules.yaml
+# 2) 内核 >= 5.8（ring buffer 与遥测依赖；5.4~5.7 降级路径不在安装支持范围）
+KMAJ=$(uname -r | cut -d. -f1)
+KMIN=$(uname -r | cut -d. -f2)
+if [ "$KMAJ" -lt 5 ] || { [ "$KMAJ" -eq 5 ] && [ "$KMIN" -lt 8 ]; }; then
+    err "内核需 >= 5.8，当前 $(uname -r)"
 fi
 
-# 7. 创建 systemd 服务
+# 3) BPF_LSM：可判定时缺失即报错；容器等无法判定的环境只告警不拦截
+if [ -f "/boot/config-$(uname -r)" ]; then
+    grep -q "CONFIG_BPF_LSM=y" "/boot/config-$(uname -r)" || \
+        err "CONFIG_BPF_LSM 未启用（/boot/config-$(uname -r)），monitor 无法加载 LSM 探针"
+elif [ -r /sys/kernel/security/lsm ]; then
+    grep -qw bpf /sys/kernel/security/lsm || \
+        err "BPF_LSM 未启用（/sys/kernel/security/lsm 无 bpf）"
+else
+    echo "WARN: 无法判定 BPF_LSM（容器环境？），继续安装；若 monitor 启动失败请检查内核配置"
+fi
+
+# 4) 磁盘：/ 至少 500MB 可用
+AVAIL_MB=$(df -m / | awk 'NR==2{print $4}')
+[ "$AVAIL_MB" -ge 500 ] || err "磁盘不足：/ 可用 ${AVAIL_MB}MB，需 >= 500MB"
+
+# 5) 预编译包判定：有匹配二进制则免工具链；否则进入源码编译路径并检测工具链
+PREBUILT=""
+[ -f "$SCRIPT_DIR/bin/diting" ] && PREBUILT="$SCRIPT_DIR/bin/diting"
+if [ -z "$PREBUILT" ] && [ ! -f "$SCRIPT_DIR/Makefile" ]; then
+    err "既无预编译二进制 bin/diting，也无源码树 Makefile，安装包不完整"
+fi
+
+if [ -z "$PREBUILT" ]; then
+    for tool in g++ clang bpftool make; do
+        command -v "$tool" >/dev/null 2>&1 || err "缺编译工具: $tool（apt install $tool）"
+    done
+    # 头文件依赖 → apt 包名
+    [ -f /usr/include/libelf.h ] || err "缺开发包: libelf-dev"
+    [ -f /usr/include/zlib.h ] || err "缺开发包: zlib1g-dev"
+    [ -e /usr/include/openssl/ssl.h ] || err "缺开发包: libssl-dev"
+    [ -d /usr/include/fmt ] || err "缺开发包: libfmt-dev"
+    [ -d /usr/include/yaml-cpp ] || err "缺开发包: libyaml-cpp-dev"
+    [ -f /usr/include/sqlite3.h ] || err "缺开发包: libsqlite3-dev"
+    [ -d /usr/include/curl ] || [ -d /usr/include/x86_64-linux-gnu/curl ] || err "缺开发包: libcurl4-openssl-dev"
+fi
+
+[ "$fail" -eq 0 ] || { echo "前置检测未通过，按以上缺项补齐后重跑"; exit 1; }
+echo "前置检测通过（内核 $(uname -r)，磁盘可用 ${AVAIL_MB}MB）"
+
+# ---------- 安装 ----------
+# 0) 已在运行的服务先停，避免替换二进制时 text busy
+if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet diting 2>/dev/null; then
+    echo "停止运行中的 diting 服务..."
+    $SUDO systemctl stop diting
+fi
+
+# 1) 二进制
+echo "[1/4] Installing binary..."
+if [ -n "$PREBUILT" ]; then
+    echo "  使用预编译二进制（跳过编译）"
+else
+    echo "[1/4] Compiling eBPF program..."
+    make clean >/dev/null 2>&1 || true
+    make
+    PREBUILT="$SCRIPT_DIR/diting"
+fi
+$SUDO install -m 755 "$PREBUILT" /usr/local/bin/diting
+
+# 2) 目录
+echo "[2/4] Setting up config..."
+$SUDO install -d -m 755 /etc/diting /var/log/diting /var/lib/diting
+
+# 3) 配置口径分离：monitor 运行配置 与 check 工具配置 是两份不同文件
+#    monitor.yaml 不存在才安装（保留现场改动）；check.yaml 同理
+[ -f /etc/diting/monitor.yaml ] || $SUDO install -m 640 deploy/monitor.yaml /etc/diting/monitor.yaml
+CHECK_CFG_SRC="baselines/default.yaml"
+[ -f "$CHECK_CFG_SRC" ] || CHECK_CFG_SRC="config/check.yaml"   # 预编译包布局
+[ -f /etc/diting/check.yaml ] || $SUDO install -m 640 "$CHECK_CFG_SRC" /etc/diting/check.yaml
+# 旧版误装痕迹提示（check 配置曾被当 monitor 配置装到 rules.yaml）
+if [ -f /etc/diting/rules.yaml ]; then
+    echo "WARN: /etc/diting/rules.yaml 是旧版误装的 check 配置，monitor 已改用 monitor.yaml，核对后可删除"
+fi
+
+# 4) 核心规则包随包安装（包管目录，每次安装整体刷新；示例规则一并附带供参考）
+echo "[3/4] Installing rules..."
+$SUDO rm -rf /etc/diting/rules
+$SUDO install -d -m 755 /etc/diting/rules
+$SUDO cp -r rules/core rules/examples /etc/diting/rules/
+RULES_INSTALLED=$(grep -rc '^- rule' /etc/diting/rules/core/*.yaml | awk -F: '{s+=$2} END {print s}')
+echo "  核心规则 $RULES_INSTALLED 条 → /etc/diting/rules/core（示例规则 → rules/examples）"
+
+# 5) systemd 服务
 echo "[4/4] Creating systemd service..."
-cat << 'EOF' | sudo tee /etc/systemd/system/diting.service
-[Unit]
-Description=diting File Integrity Monitor
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/diting monitor -c /etc/diting/rules.yaml
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
+$SUDO install -m 644 deploy/diting.service /etc/systemd/system/diting.service
+$SUDO systemctl daemon-reload
 
 echo ""
 echo "=== Installation Complete ==="
 echo "Start monitoring: sudo systemctl start diting"
 echo "Enable on boot:   sudo systemctl enable diting"
 echo "Check status:     sudo systemctl status diting"
-echo "Run audit:        sudo diting check"
+echo "Run audit:        sudo diting check -c /etc/diting/check.yaml"
 echo ""
-echo "Edit rules:       sudo vim /etc/diting/rules.yaml"
+echo "Monitor config:   /etc/diting/monitor.yaml"
+echo "Check config:     /etc/diting/check.yaml"
+echo "Rules dir:        /etc/diting/rules/core"
