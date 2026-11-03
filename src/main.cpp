@@ -33,6 +33,9 @@
 #include <string>
 #include <unistd.h>
 
+// 发布版本号：与 git tag 保持一致（dist tarball 命名取 git describe）
+#define DITING_VERSION "v1.0.0-rc1"
+
 static volatile bool g_reload = false;
 
 void sighup_handler(int) {
@@ -297,6 +300,7 @@ int main(int argc, char *argv[]) {
             printf("Options:\n");
             printf("  -c, --config <path>   config file path\n");
             printf("  -h, --help            display this message\n");
+            printf("  -v, --version         display version\n");
             printf("Commands:\n");
             printf("  --check               check baseline\n");
             printf("  --monitor             monitor baseline\n");
@@ -312,6 +316,9 @@ int main(int argc, char *argv[]) {
             printf("  cis check             run CIS baseline checks (--category/--db/--json)\n");
             printf("  cis report            show latest CIS check results (--level/--result)\n");
             printf("  stats --drop          show eBPF ring buffer drop statistics\n");
+            return 0;
+        } else if (arg == "-v" || arg == "--version") {
+            printf("diting %s\n", DITING_VERSION);
             return 0;
         } else if (arg == "-C" || arg == "--check") {
             cmd = "check";
