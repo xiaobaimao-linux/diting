@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>CIS 基线合规报告 - diting</title>
+<style>
+body{font-family:"Helvetica Neue",Arial,"Microsoft YaHei",sans-serif;margin:24px;color:#222;}
+h1{font-size:22px;margin-bottom:4px;}
+.meta{color:#666;font-size:13px;margin-bottom:16px;}
+.summary{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;}
+.card{border:1px solid #ddd;border-radius:6px;padding:12px 18px;min-width:110px;}
+.card .num{font-size:22px;font-weight:bold;}
+.card .label{font-size:12px;color:#666;}
+table{border-collapse:collapse;width:100%;font-size:13px;}
+th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;vertical-align:top;}
+th{background:#f2f2f2;}
+tr.fail{background:#fdd;}
+tr.warn{background:#fff3cd;}
+tr.pass{background:#e6f4ea;}
+td.result.fail{color:#c00;font-weight:bold;}
+td.result.warn{color:#8a6d00;font-weight:bold;}
+td.result.pass{color:#1a7f37;}
+</style>
+</head>
+<body>
+<h1>CIS 基线合规报告</h1>
+<div class="meta">工具: diting | 报告: cis-baseline | schema_version: 1 | 主机: sf-2404 | 生成时间: 2026-11-03T13:09:32</div>
+<div class="summary">
+<div class="card"><div class="num">40</div><div class="label">检查项总数</div></div>
+<div class="card"><div class="num">47.50%</div><div class="label">通过率</div></div>
+<div class="card"><div class="num">19</div><div class="label">通过</div></div>
+<div class="card"><div class="num">21</div><div class="label">不合规</div></div>
+<div class="card"><div class="num">0</div><div class="label">警告</div></div>
+<div class="card"><div class="num">4/10</div><div class="label">高级别通过 (fail 6 / warn 0)</div></div>
+<div class="card"><div class="num">8/17</div><div class="label">中级别通过 (fail 9 / warn 0)</div></div>
+<div class="card"><div class="num">7/13</div><div class="label">低级别通过 (fail 6 / warn 0)</div></div>
+</div>
+<table>
+<thead>
+<tr><th>ID</th><th>分类</th><th>描述</th><th>结果</th><th>级别</th><th>等保 2.0 条款号</th><th>修复建议</th><th>实际输出</th><th>判定理由</th><th>检查时间</th></tr>
+</thead>
+<tbody>
+<tr class="fail"><td>AUTH-01</td><td>AUTH</td><td>口令最长使用期限 ≤90 天</td><td class="result fail">不合规</td><td>高</td><td>8.1.4.1</td><td>输出 PASS（PASS_MAX_DAYS ≤90；未设置或默认值 99999 判 FAIL）；修复：sed -i &#39;s/^PASS_MAX_DAYS.*/PASS_MAX_DAYS 90/&#39; /etc/login.defs（无该行时执行 echo &#39;PASS_MAX_DAYS 90&#39; &gt;&gt; /etc/login.defs）</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>AUTH-02</td><td>AUTH</td><td>口令最短使用期限 ≥1 天</td><td class="result fail">不合规</td><td>低</td><td>8.1.4.1</td><td>输出 PASS（PASS_MIN_DAYS ≥1；未设置或 0 判 FAIL）；修复：sed -i &#39;s/^PASS_MIN_DAYS.*/PASS_MIN_DAYS 1/&#39; /etc/login.defs（无该行时执行 echo &#39;PASS_MIN_DAYS 1&#39; &gt;&gt; /etc/login.defs）</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>AUTH-03</td><td>AUTH</td><td>口令过期提醒提前 ≥7 天</td><td class="result pass">通过</td><td>低</td><td>8.1.4.1</td><td>输出 PASS（PASS_WARN_AGE ≥7；未设置判 FAIL）；修复：sed -i &#39;s/^PASS_WARN_AGE.*/PASS_WARN_AGE 7/&#39; /etc/login.defs（无该行时执行 echo &#39;PASS_WARN_AGE 7&#39; &gt;&gt; /etc/login.defs）</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>AUTH-04</td><td>AUTH</td><td>口令最小长度 ≥14（pwquality）</td><td class="result fail">不合规</td><td>高</td><td>8.1.4.1</td><td>输出 PASS（minlen ≥14，pwquality.conf 优先，其次 common-password 中 pam_pwquality.so 行参数；两处均未设置判 FAIL）；修复：sed -i &#39;s/^#* *minlen *=.*/minlen = 14/&#39; /etc/security/pwquality.conf（无该行时执行 echo &#39;minlen = 14&#39; &gt;&gt; /etc/security/pwquality.conf）</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>AUTH-05</td><td>AUTH</td><td>登录失败锁定（pam_faillock）已启用</td><td class="result fail">不合规</td><td>高</td><td>8.1.4.1</td><td>输出 PASS（common-auth 中 pam_faillock.so 出现 ≥2 次，即 preauth+authfail 均配置；0 次表示未启用锁定，判 FAIL）；修复：sed -i &#39;/pam_unix.so/i auth required pam_faillock.so preauth silent&#39; /etc/pam.d/common-auth &amp;&amp; echo &#39;auth [default=die] pam_faillock.so authfail&#39; &gt;&gt; /etc/pam.d/common-auth，并在 /etc/security/faillock.conf 中设 deny = 10</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>AUTH-06</td><td>AUTH</td><td>空口令禁用</td><td class="result fail">不合规</td><td>高</td><td>8.1.4.1</td><td>输出 PASS（/etc/passwd 第 2 列无空字段，且 common-auth/common-password 未启用 nullok；任一项不满足判 FAIL）；修复：passwd &lt;用户名&gt; 为空口令账户设置口令，并执行 sed -i &#39;s/nullok//g&#39; /etc/pam.d/common-auth /etc/pam.d/common-password 移除 nullok</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>AUTH-07</td><td>AUTH</td><td>UID 0 账户唯一且为 root</td><td class="result pass">通过</td><td>中</td><td>8.1.4.2</td><td>输出 PASS（UID=0 仅 root 一个账户；存在其他 UID 0 账户判 FAIL）；修复：usermod -u &lt;新UID&gt; &lt;用户名&gt; 修改非 root 的 UID 0 账户，多余账户用 userdel &lt;用户名&gt; 删除</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>AUTH-08</td><td>AUTH</td><td>默认 UMASK ≥027</td><td class="result fail">不合规</td><td>低</td><td>8.1.4.8</td><td>输出 PASS（/etc/login.defs 中 UMASK 为 027/077 等不宽松于 027 的值；022 或未设置判 FAIL）；修复：sed -i &#39;s/^UMASK.*/UMASK 027/&#39; /etc/login.defs（无该行时执行 echo &#39;UMASK 027&#39; &gt;&gt; /etc/login.defs）</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>FILE-01</td><td>FILE</td><td>/etc/shadow 权限与属主</td><td class="result pass">通过</td><td>高</td><td>8.1.4.2</td><td>输出 PASS（权限 ≤640 且属主 root:shadow；全局可读判 FAIL）；修复：chmod 640 /etc/shadow &amp;&amp; chown root:shadow /etc/shadow</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>FILE-02</td><td>FILE</td><td>/etc/gshadow 权限与属主</td><td class="result pass">通过</td><td>高</td><td>8.1.4.2</td><td>输出 PASS（权限 ≤640 且属主 root:shadow）；修复：chmod 640 /etc/gshadow &amp;&amp; chown root:shadow /etc/gshadow</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>FILE-03</td><td>FILE</td><td>/etc/passwd 权限与属主</td><td class="result pass">通过</td><td>中</td><td>8.1.4.2</td><td>输出 PASS（权限 ≤644 且属主 root:root）；修复：chmod 644 /etc/passwd &amp;&amp; chown root:root /etc/passwd</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>FILE-04</td><td>FILE</td><td>GRUB 配置文件权限（grub.cfg）</td><td class="result pass">通过</td><td>中</td><td>8.1.4.2</td><td>输出 PASS（/boot/grub/grub.cfg 权限 ≤600 且属主 root；文件不存在判 FAIL——纯 UEFI 安装需改查 /boot/efi/EFI/*/grub.cfg）；修复：chmod 600 /boot/grub/grub.cfg &amp;&amp; chown root:root /boot/grub/grub.cfg</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>FILE-05</td><td>FILE</td><td>/etc/crontab 权限与属主</td><td class="result fail">不合规</td><td>中</td><td>8.1.4.2</td><td>输出 PASS（权限 ≤600 且属主 root:root；缺省 644 判 FAIL）；修复：chmod 600 /etc/crontab &amp;&amp; chown root:root /etc/crontab</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>FILE-06</td><td>FILE</td><td>cron 目录权限与属主</td><td class="result fail">不合规</td><td>中</td><td>8.1.4.2</td><td>输出 PASS（五个 cron 目录权限均 ≤700 且属主 root；任一不满足判 FAIL）；修复：chmod 700 /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly &amp;&amp; chown root:root /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>FILE-07</td><td>FILE</td><td>TCP Wrappers 配置文件权限（hosts.allow/deny）</td><td class="result pass">通过</td><td>低</td><td>8.1.4.2</td><td>输出 PASS（两文件权限均 ≤644 且属主 root）；修复：chmod 644 /etc/hosts.allow /etc/hosts.deny &amp;&amp; chown root:root /etc/hosts.allow /etc/hosts.deny</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>FILE-08</td><td>FILE</td><td>sshd_config 权限与属主</td><td class="result fail">不合规</td><td>中</td><td>8.1.4.2</td><td>输出 PASS（权限 ≤600 且属主 root:root；缺省 644 判 FAIL）；修复：chmod 600 /etc/ssh/sshd_config &amp;&amp; chown root:root /etc/ssh/sshd_config</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>LOG-01</td><td>LOG</td><td>rsyslog 服务已启用自启动</td><td class="result pass">通过</td><td>高</td><td>8.1.4.3</td><td>输出 PASS（rsyslog 开机自启；unit 不存在或 disabled/masked 判 FAIL）；修复：apt install -y rsyslog &amp;&amp; systemctl enable --now rsyslog</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>LOG-02</td><td>LOG</td><td>journald 日志持久化存储</td><td class="result pass">通过</td><td>中</td><td>8.1.4.3</td><td>输出 PASS（Storage=persistent，或未设置/为 auto 且 /var/log/journal 目录存在——未设置时 journald 缺省即 auto；Storage=volatile，或 auto 但无持久目录判 FAIL）；修复：sed -i &#39;s/^#*Storage=.*/Storage=persistent/&#39; /etc/systemd/journald.conf &amp;&amp; mkdir -p /var/log/journal &amp;&amp; systemctl restart systemd-journald</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>LOG-03</td><td>LOG</td><td>auditd 已安装并启用自启动</td><td class="result fail">不合规</td><td>高</td><td>8.1.4.3</td><td>输出 PASS（auditd 开机自启；未安装（unit not-found）或 disabled 判 FAIL——按等保审计要求视为未落实）；修复：apt install -y auditd &amp;&amp; systemctl enable --now auditd</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>LOG-04</td><td>LOG</td><td>audit 规则非空</td><td class="result fail">不合规</td><td>中</td><td>8.1.4.3</td><td>输出 PASS（/etc/audit/rules.d/*.rules 中有效（非注释非空）规则行数 &gt;0；目录或文件不存在（行数 0）判 FAIL）；修复：echo &#39;-a always,exit -F arch=b64 -S open,openat -F exit=-EACCES -k access&#39; &gt;&gt; /etc/audit/rules.d/cis.rules &amp;&amp; augenrules --load</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>LOG-05</td><td>LOG</td><td>认证日志文件权限与属主正确（/var/log/auth.log）</td><td class="result pass">通过</td><td>低</td><td>8.1.4.3</td><td>输出 PASS（文件存在，属主 root 或 syslog，组 adm，权限 ≤640；文件不存在判 FAIL）；修复：chown syslog:adm /var/log/auth.log &amp;&amp; chmod 640 /var/log/auth.log</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>LOG-06</td><td>LOG</td><td>系统日志 logrotate 轮转已配置</td><td class="result pass">通过</td><td>低</td><td>8.1.4.3</td><td>输出 PASS（logrotate 主配置与 rsyslog 轮转配置均存在；任一缺失判 FAIL）；修复：apt install -y logrotate（rsyslog 轮转配置缺失时执行 apt install --reinstall -y rsyslog）</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>MISC-01</td><td>MISC</td><td>swap 倾向值 ≤10（vm.swappiness）</td><td class="result fail">不合规</td><td>低</td><td>无直接对应</td><td>输出 PASS（vm.swappiness ≤10；缺省 60 判 FAIL。属性能调优项，按系统角色取舍）；修复：echo &#39;vm.swappiness = 10&#39; &gt;&gt; /etc/sysctl.d/60-cis.conf &amp;&amp; sysctl --system</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>MISC-02</td><td>MISC</td><td>地址空间随机化全开（ASLR=2）</td><td class="result pass">通过</td><td>中</td><td>8.1.4.4</td><td>输出 PASS（kernel.randomize_va_space=2；0/1 判 FAIL）；修复：echo &#39;kernel.randomize_va_space = 2&#39; &gt;&gt; /etc/sysctl.d/60-cis.conf &amp;&amp; sysctl --system</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>MISC-03</td><td>MISC</td><td>禁用 setuid 程序 core dump（suid_dumpable=0）</td><td class="result fail">不合规</td><td>中</td><td>8.1.4.8</td><td>输出 PASS（fs.suid_dumpable=0；缺省 2（受保护调试，但仍产生转储）判 FAIL）；修复：echo &#39;fs.suid_dumpable = 0&#39; &gt;&gt; /etc/sysctl.d/60-cis.conf &amp;&amp; sysctl --system</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>MISC-04</td><td>MISC</td><td>sudoers 及 sudoers.d 文件权限</td><td class="result fail">不合规</td><td>中</td><td>8.1.4.2</td><td>输出 PASS（/etc/sudoers 及 /etc/sudoers.d 下全部文件权限 ≤440 且属主 root；任一 644/640 判 FAIL）；修复：chmod 440 /etc/sudoers &amp;&amp; chown root:root /etc/sudoers &amp;&amp; find /etc/sudoers.d -type f -exec chmod 440 {} + -exec chown root:root {} +</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>NET-01</td><td>NET</td><td>禁用 IPv4 转发（ip_forward=0）</td><td class="result fail">不合规</td><td>中</td><td>8.1.4.4</td><td>输出 PASS（运行时值为 0；为 1 判 FAIL。容器/虚拟化宿主机按需加白名单）；修复：echo &#39;net.ipv4.ip_forward = 0&#39; &gt;&gt; /etc/sysctl.d/60-cis.conf &amp;&amp; sysctl --system</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>NET-02</td><td>NET</td><td>禁用源路由（accept_source_route=0）</td><td class="result pass">通过</td><td>中</td><td>8.1.4.4</td><td>输出 PASS（net.ipv4.conf.all.accept_source_route=0）；修复：echo &#39;net.ipv4.conf.all.accept_source_route = 0&#39; &gt;&gt; /etc/sysctl.d/60-cis.conf &amp;&amp; sysctl --system</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>NET-03</td><td>NET</td><td>禁用 ICMP 重定向接收（accept_redirects=0）</td><td class="result pass">通过</td><td>中</td><td>8.1.4.4</td><td>输出 PASS（net.ipv4.conf.all.accept_redirects=0）；修复：echo &#39;net.ipv4.conf.all.accept_redirects = 0&#39; &gt;&gt; /etc/sysctl.d/60-cis.conf &amp;&amp; sysctl --system</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>NET-04</td><td>NET</td><td>反向路径过滤已启用（rp_filter≥1）</td><td class="result pass">通过</td><td>低</td><td>8.1.4.4</td><td>输出 PASS（net.ipv4.conf.all.rp_filter 为 1（严格）或 2（松散）；0 判 FAIL）；修复：echo &#39;net.ipv4.conf.all.rp_filter = 1&#39; &gt;&gt; /etc/sysctl.d/60-cis.conf &amp;&amp; sysctl --system</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>NET-05</td><td>NET</td><td>忽略 ICMP 广播请求</td><td class="result pass">通过</td><td>低</td><td>8.1.4.4</td><td>输出 PASS（net.ipv4.icmp_echo_ignore_broadcasts=1）；修复：echo &#39;net.ipv4.icmp_echo_ignore_broadcasts = 1&#39; &gt;&gt; /etc/sysctl.d/60-cis.conf &amp;&amp; sysctl --system</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>NET-06</td><td>NET</td><td>SYN Cookie 防护已启用</td><td class="result pass">通过</td><td>中</td><td>8.1.4.4</td><td>输出 PASS（net.ipv4.tcp_syncookies=1）；修复：echo &#39;net.ipv4.tcp_syncookies = 1&#39; &gt;&gt; /etc/sysctl.d/60-cis.conf &amp;&amp; sysctl --system</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>SSH-01</td><td>SSH</td><td>禁止 root 直接 SSH 登录（PermitRootLogin no）</td><td class="result fail">不合规</td><td>高</td><td>8.1.4.1</td><td>输出 PASS（生效值为 no；缺省 prohibit-password 亦判 FAIL，因不满足“显式禁止”）；修复：echo &#39;PermitRootLogin no&#39; &gt; /etc/ssh/sshd_config.d/60-cis.conf &amp;&amp; systemctl reload sshd</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>SSH-02</td><td>SSH</td><td>禁用口令认证（PasswordAuthentication no）</td><td class="result fail">不合规</td><td>中</td><td>8.1.4.1</td><td>输出 PASS（生效值为 no；未设置时缺省为 yes，判 FAIL。仅密钥环境适用）；修复：echo &#39;PasswordAuthentication no&#39; &gt;&gt; /etc/ssh/sshd_config.d/60-cis.conf &amp;&amp; systemctl reload sshd</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>SSH-03</td><td>SSH</td><td>最大认证尝试次数 ≤4（MaxAuthTries）</td><td class="result fail">不合规</td><td>中</td><td>8.1.4.1</td><td>输出 PASS（1≤MaxAuthTries≤4；未设置时缺省 6，判 FAIL）；修复：echo &#39;MaxAuthTries 4&#39; &gt;&gt; /etc/ssh/sshd_config.d/60-cis.conf &amp;&amp; systemctl reload sshd</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>SSH-04</td><td>SSH</td><td>禁止空口令登录（PermitEmptyPasswords no）</td><td class="result pass">通过</td><td>高</td><td>8.1.4.1</td><td>输出 PASS（生效值为 no；未设置时缺省即为 no，判 PASS；显式 yes 判 FAIL）；修复：echo &#39;PermitEmptyPasswords no&#39; &gt;&gt; /etc/ssh/sshd_config.d/60-cis.conf &amp;&amp; systemctl reload sshd</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>SSH-05</td><td>SSH</td><td>关闭 X11 转发（X11Forwarding no）</td><td class="result fail">不合规</td><td>低</td><td>8.1.4.4</td><td>输出 PASS（生效值为 no；未设置缺省为 no 判 PASS；显式 yes 判 FAIL）；修复：echo &#39;X11Forwarding no&#39; &gt;&gt; /etc/ssh/sshd_config.d/60-cis.conf &amp;&amp; systemctl reload sshd</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>SSH-06</td><td>SSH</td><td>SSH 空闲会话超时（1≤ClientAliveInterval≤300）</td><td class="result fail">不合规</td><td>低</td><td>8.1.4.1</td><td>输出 PASS（ClientAliveInterval 在 1~300 秒；未设置时缺省 0（永不超时），判 FAIL）；修复：echo &#39;ClientAliveInterval 300&#39; &gt;&gt; /etc/ssh/sshd_config.d/60-cis.conf &amp;&amp; systemctl reload sshd</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="pass"><td>SSH-07</td><td>SSH</td><td>单连接最大会话数 ≤10（MaxSessions）</td><td class="result pass">通过</td><td>低</td><td>8.1.4.4</td><td>输出 PASS（未设置时缺省 10，判 PASS；显式设置须 ≤10）；修复：echo &#39;MaxSessions 10&#39; &gt;&gt; /etc/ssh/sshd_config.d/60-cis.conf &amp;&amp; systemctl reload sshd</td><td>PASS</td><td></td><td>2026-11-03T13:09:30</td></tr>
+<tr class="fail"><td>SSH-08</td><td>SSH</td><td>SSH 审计日志详细级别 ≥VERBOSE</td><td class="result fail">不合规</td><td>低</td><td>8.1.4.3</td><td>输出 PASS（LogLevel 为 VERBOSE/DEBUGx；未设置时缺省 INFO，判 FAIL）；修复：echo &#39;LogLevel VERBOSE&#39; &gt;&gt; /etc/ssh/sshd_config.d/60-cis.conf &amp;&amp; systemctl reload sshd</td><td>FAIL</td><td></td><td>2026-11-03T13:09:30</td></tr>
+</tbody>
+</table>
+</body>
+</html>
