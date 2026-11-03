@@ -34,7 +34,7 @@
 #include <unistd.h>
 
 // 发布版本号：与 git tag 保持一致（dist tarball 命名取 git describe）
-#define DITING_VERSION "v1.0.0-rc1"
+#define DITING_VERSION "v1.0.0-rc2"
 
 static volatile bool g_reload = false;
 

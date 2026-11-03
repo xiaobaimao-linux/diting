@@ -217,3 +217,7 @@
 - 临时规避：`diting cis check --defs <定义文件路径>`（A 机验证：pass 19 / fail 21 / warn 0，40 项全判定正常）。
 - 修复方向（排 rc2/正式版）：tarball 纳入 cis 定义文件 + install.sh 安装到
   `/etc/diting/cis-baseline-v1.yaml` + kDefaultDefs 指向装后绝对路径（或二进制内嵌兜底）。
+- **已修复（2026-11-03，W10 S4，v1.0.0-rc2）**：tarball 纳入 `cis/cis-baseline-v1.yaml`；
+  install.sh 每次安装刷新 `/etc/diting/cis-baseline-v1.yaml`；`kDefaultDefs` 改为装后绝对路径，
+  源码树相对路径保留为兜底（src/cis/cis_main.cpp）。验证：源码树内与模拟装后环境（/tmp cwd）
+  零参数直跑均 pass 19 / fail 21 / 未知 0，40 项全判定。

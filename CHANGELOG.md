@@ -2,6 +2,18 @@
 
 本项目所有面向使用者的变更记录于此。格式按版本分段，最新版本在最上方。
 
+## v1.0.0-rc2（2026-11-03）
+
+发布候选第二版，唯一变更：修复 rc1 验证暴露的 G26。
+
+### Fixed
+
+- **G26 CIS 定义文件随包分发**：tarball 纳入 `cis/cis-baseline-v1.yaml`；install.sh 安装到 `/etc/diting/cis-baseline-v1.yaml`；`diting cis check` 默认定义路径改为装后绝对路径（保留源码树相对路径兜底）。装后任意 cwd 下 `diting cis check` 零参数直跑可用（A 机实测 pass 19 / fail 21 / 未知 0，40 项全判定）。
+
+### 其他
+
+- 文档与报告中仓库地址统一更新为 `github.com/xiaobaimao-linux/diting`（仓库迁移）。
+
 ## v1.0.0-rc1（2026-11-03）
 
 diting 首个发布候选。v1.0 = 方案 B+C 混合：eBPF 主机安全遥测 + 文件完整性监控（FIM）+ 规则引擎检测 + CIS 基线 + AI 安全专项。本版本为正式发布前的最后一道闸。

@@ -31,7 +31,9 @@ using cis::Verdict;
 using json = nlohmann::json;
 
 const std::string kDefaultDb = "/var/lib/diting/baseline.db";
-const std::string kDefaultDefs = "cis/cis-baseline-v1.yaml";
+const std::string kDefaultDefs = "/etc/diting/cis-baseline-v1.yaml";
+// 源码树内运行的兜底相对路径（未安装时）
+const std::string kFallbackDefs = "cis/cis-baseline-v1.yaml";
 
 struct CommonOptions {
     std::string db_path = kDefaultDb;
@@ -209,7 +211,15 @@ int RunCheck(int argc, char* argv[]) {
 
     std::vector<CisCheckDef> defs;
     std::string load_err;
-    if (!cis::LoadCisChecks(common.defs_path, defs, load_err)) {
+    std::string defs_path = common.defs_path;
+    if (defs_path == kDefaultDefs) {
+        std::ifstream installed(defs_path);
+        if (!installed.good()) {
+            std::ifstream fallback(kFallbackDefs);
+            if (fallback.good()) defs_path = kFallbackDefs;
+        }
+    }
+    if (!cis::LoadCisChecks(defs_path, defs, load_err)) {
         std::cerr << "Error: " << load_err << "\n";
         return 1;
     }

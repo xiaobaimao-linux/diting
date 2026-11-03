@@ -134,6 +134,15 @@ $SUDO cp -r rules/core rules/examples /etc/diting/rules/
 RULES_INSTALLED=$(grep -rc '^- rule' /etc/diting/rules/core/*.yaml | awk -F: '{s+=$2} END {print s}')
 echo "  核心规则 $RULES_INSTALLED 条 → /etc/diting/rules/core（示例规则 → rules/examples）"
 
+# 4b) CIS 定义文件随包安装（diting cis check 默认路径；包管文件，每次安装刷新）
+CIS_DEFS_SRC="cis/cis-baseline-v1.yaml"   # 源码树与预编译包布局一致
+if [ -f "$CIS_DEFS_SRC" ]; then
+    $SUDO install -m 644 "$CIS_DEFS_SRC" /etc/diting/cis-baseline-v1.yaml
+    echo "  CIS 定义 → /etc/diting/cis-baseline-v1.yaml"
+else
+    echo "WARN: 未找到 $CIS_DEFS_SRC，diting cis check 需用 --defs 指定定义文件"
+fi
+
 # 5) systemd 服务（unit 文件照常落盘；无 systemd 的容器环境只跳过 daemon-reload）
 echo "[4/4] Creating systemd service..."
 $SUDO install -d -m 755 /etc/systemd/system

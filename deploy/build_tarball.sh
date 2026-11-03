@@ -33,13 +33,14 @@ make clean >/dev/null 2>&1 || true
 make -j"$(nproc)"
 
 rm -rf "$STAGE"
-mkdir -p "$STAGE/bin" "$STAGE/deploy" "$STAGE/config" "$STAGE/rules"
+mkdir -p "$STAGE/bin" "$STAGE/deploy" "$STAGE/config" "$STAGE/rules" "$STAGE/cis"
 
 install -s -m 755 diting "$STAGE/bin/diting"   # strip：发行包不带调试符号（47MB→~6MB）
 install -m 755 install.sh "$STAGE/install.sh"
 install -m 644 deploy/monitor.yaml "$STAGE/deploy/monitor.yaml"
 install -m 644 deploy/diting.service "$STAGE/deploy/diting.service"
 install -m 644 baselines/default.yaml "$STAGE/config/check.yaml"
+install -m 644 cis/cis-baseline-v1.yaml "$STAGE/cis/cis-baseline-v1.yaml"
 cp -r rules/core rules/examples "$STAGE/rules/"
 
 tar czf "dist/$PKG.tar.gz" -C dist "$PKG"

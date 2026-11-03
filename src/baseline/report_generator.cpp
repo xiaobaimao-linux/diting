@@ -117,7 +117,7 @@ tr:hover{background:#f6f8fa}
 </table>
 
 <div class="footer">
-<p>由 diting 自动生成 | https://github.com/xiaobaimao-linux/ebpf-baseline</p>
+<p>由 diting 自动生成 | https://github.com/xiaobaimao-linux/diting</p>
 <p>如需技术支持，请联系：xiaobaimao-linux@proton.me</p>
 </div>
 
@@ -246,7 +246,7 @@ tr:hover{background:#f6f8fa}
 </table>
 
 <div class="footer">
-<p>由 diting 自动生成 | https://github.com/xiaobaimao-linux/ebpf-baseline</p>
+<p>由 diting 自动生成 | https://github.com/xiaobaimao-linux/diting</p>
 </div>
 
 </body>
