@@ -206,3 +206,14 @@
   clang-18 产物 × libbpf 1.4.5/1.8.0 在 B 机 5.15 实测全载；失败 prog 实为
   sendto/sendmsg/sendmmsg 三个（共用 parse_dns_query），kprobe/bind 无辜。
   证据落盘：B 机 /root/g25/（diting_repro.log、iso_*.log、e3_*.log、fix_*.log）。
+
+## G26 CIS 定义文件未随预编译 tarball 分发，装后 cis check 默认路径解析失败（W10 S3 RC 验证暴露）
+
+- 现象（2026-11-03，A 机 rc1 全链路验证）：`dist/diting-v1.0.0-rc1-ubuntu-*.tar.gz`
+  不含 `cis/cis-baseline-v1.yaml`，install.sh 也不安装该文件；`diting cis check`
+  默认定义路径为相对路径 `cis/cis-baseline-v1.yaml`（src/cis/cis_main.cpp kDefaultDefs），
+  装后环境任意 cwd 下均报 `Error: 解析定义文件失败: bad file: cis/cis-baseline-v1.yaml`。
+- 影响：tarball 安装产物 CIS 功能开箱不可用（源码树内运行不受影响）。
+- 临时规避：`diting cis check --defs <定义文件路径>`（A 机验证：pass 19 / fail 21 / warn 0，40 项全判定正常）。
+- 修复方向（排 rc2/正式版）：tarball 纳入 cis 定义文件 + install.sh 安装到
+  `/etc/diting/cis-baseline-v1.yaml` + kDefaultDefs 指向装后绝对路径（或二进制内嵌兜底）。

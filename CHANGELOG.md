@@ -40,6 +40,7 @@ diting 首个发布候选。v1.0 = 方案 B+C 混合：eBPF 主机安全遥测 +
 3. **5.15 内核 chown 降级**：5.15 上 `path_chown` LSM 钩子的 kuid_t/kgid_t 参数触 verifier 拒绝，自动降级为禁载 chown 钩子（CHOWN 实时检测缺失），其余探针不受影响；日志有显式降级提示。
 4. **cmdline 256B 截断**：exec 事件命令行采集前 255 字节（内存预算决策，超长命令行尾部不可见）。
 5. **其余开放缺口 14 项**（G4 endswith/glob、G5 跨事件关联、G12 位运算等 DSL 表达力边界）：见 `docs/rule-engine-gaps.md`；G24/G25 已关闭。
+6. **G26 CIS 定义文件未随 tarball 分发**（rc1 验证暴露）：装后 `diting cis check` 默认路径解析失败，需 `--defs <路径>` 显式指定；正式版将随包安装定义文件并修正默认路径。
 
 ### 平台口径
 
